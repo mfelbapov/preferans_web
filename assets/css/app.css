@@ -102,4 +102,61 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
-/* This file is for your main application CSS */
+/* Game table styles */
+.game-table {
+  background-color: #1B4332;
+  background-image:
+    radial-gradient(ellipse at center, rgba(255,255,255,0.03) 0%, transparent 70%);
+}
+
+/* Card colors */
+.text-card-red { color: #C41E3A; }
+.text-card-black { color: #1A1A2E; }
+.bg-card-cream { background-color: #FEFCE8; }
+.bg-card-back { background-color: #1B4332; }
+.border-card-back-border { border-color: #2D6A4F; }
+
+/* Card back pattern */
+.card-back-pattern {
+  background-image: repeating-linear-gradient(
+    45deg,
+    transparent,
+    transparent 5px,
+    rgba(255,255,255,0.05) 5px,
+    rgba(255,255,255,0.05) 10px
+  );
+}
+
+/* Sidebar */
+.bg-sidebar-bg { background-color: #0F2419; }
+
+/* Game action buttons */
+.btn-game {
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  transition: all 0.15s;
+}
+
+.btn-game-primary {
+  background-color: #D97706;
+  color: white;
+}
+.btn-game-primary:hover {
+  background-color: #B45309;
+}
+
+.btn-game-secondary {
+  background-color: #4B5563;
+  color: white;
+}
+.btn-game-secondary:hover {
+  background-color: #374151;
+}
+
+.btn-game-disabled {
+  background-color: #374151;
+  color: #6B7280;
+  cursor: not-allowed;
+}

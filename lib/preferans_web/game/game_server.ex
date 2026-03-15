@@ -87,9 +87,16 @@ defmodule PreferansWeb.Game.GameServer do
         {p.seat, p.display_name}
       end
 
+    enriched_players =
+      Enum.map(state.players, fn p ->
+        engine_player = Enum.find(view.players, &(&1.seat == p.seat)) || %{}
+        Map.merge(p, engine_player)
+      end)
+
     view =
       Map.merge(view, %{
         display_names: display_names,
+        players: enriched_players,
         hands_played: state.hands_played,
         match_bule: state.match_bule,
         match_refe_counts: state.match_refe_counts,
