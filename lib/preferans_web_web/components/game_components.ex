@@ -162,13 +162,17 @@ defmodule PreferansWebWeb.GameComponents do
         </div>
         <div class="mt-3 text-center">
           <button
+            :if={MapSet.size(@selected) == 2}
             phx-click="confirm_discard"
-            disabled={MapSet.size(@selected) != 2}
-            class={[
-              "btn-game",
-              MapSet.size(@selected) == 2 && "btn-game-primary",
-              MapSet.size(@selected) != 2 && "btn-game-disabled"
-            ]}
+            class="btn-game btn-game-primary"
+            id="confirm-discard-btn"
+          >
+            {gettext("Discard")}
+          </button>
+          <button
+            :if={MapSet.size(@selected) != 2}
+            class="btn-game btn-game-disabled"
+            disabled
           >
             {gettext("Discard")}
           </button>
