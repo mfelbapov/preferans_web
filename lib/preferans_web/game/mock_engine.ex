@@ -365,13 +365,20 @@ defmodule PreferansWeb.Game.MockEngine do
   end
 
   defp hand_decided?(state) do
-    cond do
-      # Betl: declarer took a trick — instant fail
-      state.game_type == :betl and Enum.at(state.tricks_won, state.declarer) > 0 ->
-        true
+    declarer_tricks = Enum.at(state.tricks_won, state.declarer)
+    tricks_remaining = 10 - state.trick_number
 
+    cond do
       # All 10 tricks played
       state.trick_number >= 10 ->
+        true
+
+      # Betl: declarer took a trick — instant fail
+      state.game_type == :betl and declarer_tricks > 0 ->
+        true
+
+      # Suit/Sans: declarer can't possibly reach 6 — they've failed
+      state.game_type != :betl and declarer_tricks + tricks_remaining < 6 ->
         true
 
       true ->

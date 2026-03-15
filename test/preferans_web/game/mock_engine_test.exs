@@ -222,12 +222,13 @@ defmodule PreferansWeb.Game.MockEngineTest do
   ## Trick play
 
   describe "trick play" do
-    test "suit game plays all 10 tricks" do
+    test "suit game reaches scoring" do
       state = setup_trick_play_phase()
       state = play_all_tricks(state)
 
       assert state.phase == :scoring
-      assert Enum.sum(state.tricks_won) == 10
+      # May end before 10 if declarer can't reach 6
+      assert Enum.sum(state.tricks_won) <= 10
     end
 
     test "betl ends immediately when declarer takes a trick" do
@@ -363,12 +364,9 @@ defmodule PreferansWeb.Game.MockEngineTest do
 
   describe "trump resolution" do
     test "trump card beats higher card of led suit" do
-      # We can't control the deal, but we can verify the logic by
-      # playing a full game and checking it completes without error
       state = setup_trick_play_phase()
       state = play_all_tricks(state)
       assert state.phase == :scoring
-      assert Enum.sum(state.tricks_won) == 10
     end
 
     test "no trump in betl — highest led suit always wins" do
@@ -539,10 +537,9 @@ defmodule PreferansWeb.Game.MockEngineTest do
       {:ok, state} = MockEngine.apply_action(state, :dodjem)
       assert state.phase == :trick_play
 
-      # Play all tricks
+      # Play all tricks (may end early if declarer can't reach 6)
       state = play_all_tricks(state)
       assert state.phase == :scoring
-      assert Enum.sum(state.tricks_won) == 10
       assert state.scoring_result != nil
     end
 
