@@ -71,5 +71,21 @@ defmodule PreferansWeb.Game.Cards do
     @rank_symbols[rank] <> @suit_symbols[suit]
   end
 
+  def suit_symbol(suit), do: Map.fetch!(@suit_symbols, suit)
+  def rank_label(rank), do: Map.fetch!(@rank_symbols, rank)
+
+  def suit_color(suit) when suit in [:herc, :karo], do: :red
+  def suit_color(suit) when suit in [:pik, :tref], do: :black
+
+  def card_to_key({suit, rank}), do: "#{suit}:#{rank}"
+
+  def parse_card_key(str) do
+    [s, r] = String.split(str, ":")
+    {String.to_existing_atom(s), String.to_existing_atom(r)}
+  end
+
   def game_value(game_type), do: Map.fetch!(@game_values, game_type)
+
+  @game_names %{pik: "Pik", karo: "Karo", herc: "Herc", tref: "Tref", betl: "Betl", sans: "Sans"}
+  def game_name(game_type), do: Map.fetch!(@game_names, game_type)
 end
