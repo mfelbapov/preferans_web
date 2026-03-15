@@ -49,7 +49,7 @@ defmodule PreferansWebWeb.CardComponent do
   defp card_face_classes(size, clickable, selected, dimmed) do
     base = "relative rounded-lg border border-stone-300 bg-card-cream shadow-sm select-none"
 
-    size_class = if size == :small, do: "w-[50px] h-[72px]", else: "w-[70px] h-[100px]"
+    size_class = if size == :small, do: "w-[60px] h-[84px]", else: "w-[90px] h-[126px]"
 
     click_class =
       if clickable and not dimmed, do: "cursor-pointer hover:scale-105 hover:shadow-md", else: ""
@@ -67,17 +67,17 @@ defmodule PreferansWebWeb.CardComponent do
   end
 
   defp card_back_classes(size) do
-    size_class = if size == :small, do: "w-[50px] h-[72px]", else: "w-[70px] h-[100px]"
+    size_class = if size == :small, do: "w-[60px] h-[84px]", else: "w-[90px] h-[126px]"
 
     "#{size_class} rounded-lg border-2 border-card-back-border bg-card-back select-none card-back-pattern"
   end
 
-  defp rank_class(:small), do: "text-[10px] font-bold"
-  defp rank_class(_), do: "text-xs font-bold"
+  defp rank_class(:small), do: "text-xs font-bold"
+  defp rank_class(_), do: "text-sm font-bold"
 
-  defp suit_small_class(:small), do: "text-[9px] -mt-0.5"
-  defp suit_small_class(_), do: "text-[10px] -mt-0.5"
+  defp suit_small_class(:small), do: "text-[10px] -mt-0.5"
+  defp suit_small_class(_), do: "text-xs -mt-0.5"
 
-  defp suit_center_class(:small), do: "text-xl"
-  defp suit_center_class(_), do: "text-2xl"
+  defp suit_center_class(:small), do: "text-2xl"
+  defp suit_center_class(_), do: "text-4xl"
 end

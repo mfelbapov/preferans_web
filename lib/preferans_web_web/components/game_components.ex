@@ -52,7 +52,7 @@ defmodule PreferansWebWeb.GameComponents do
 
   def trick_area(assigns) do
     ~H"""
-    <div class="relative w-[220px] h-[160px]">
+    <div class="relative w-[280px] h-[180px]">
       <div
         :for={entry <- @current_trick}
         class={trick_card_position(entry.player, @my_seat, @positions)}
