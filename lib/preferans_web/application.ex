@@ -12,8 +12,8 @@ defmodule PreferansWeb.Application do
       PreferansWeb.Repo,
       {DNSCluster, query: Application.get_env(:preferans_web, :dns_cluster_query) || :ignore},
       {Phoenix.PubSub, name: PreferansWeb.PubSub},
-      # Start a worker by calling: PreferansWeb.Worker.start_link(arg)
-      # {PreferansWeb.Worker, arg},
+      {Registry, keys: :unique, name: PreferansWeb.GameRegistry},
+      {DynamicSupervisor, name: PreferansWeb.GameSupervisor, strategy: :one_for_one},
       # Start to serve requests, typically the last entry
       PreferansWebWeb.Endpoint
     ]
