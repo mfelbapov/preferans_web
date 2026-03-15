@@ -114,6 +114,12 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   @impl true
+  def handle_event("next_hand", _params, socket) do
+    GameServer.deal_next_hand(socket.assigns.game_id)
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("play_card", %{"card" => card_str}, socket) do
     submit(socket, {:play, Cards.parse_card_key(card_str)})
   end

@@ -36,6 +36,12 @@ defmodule PreferansWeb.Game.GameServer do
     :exit, _ -> {:error, :not_found}
   end
 
+  def deal_next_hand(game_id) do
+    GenServer.call(via(game_id), :deal_next_hand)
+  catch
+    :exit, _ -> {:error, :not_found}
+  end
+
   def subscribe(game_id) do
     PubSub.subscribe(@pubsub, topic(game_id))
   end
@@ -164,6 +170,31 @@ defmodule PreferansWeb.Game.GameServer do
   end
 
   @impl true
+  def handle_call(:deal_next_hand, _from, state) do
+    if state.engine_state.phase == :hand_over do
+      new_dealer = rem(state.current_dealer + 1, 3)
+
+      engine_state =
+        MockEngine.new_hand(
+          new_dealer,
+          state.match_bule,
+          state.match_refe_counts,
+          state.max_refes
+        )
+
+      state = %{state | engine_state: engine_state, current_dealer: new_dealer}
+      broadcast(state.game_id, {:new_hand_starting, state.game_id})
+      broadcast(state.game_id, {:game_state_updated, state.game_id})
+
+      state = maybe_schedule_ai_turn(state)
+
+      {:reply, :ok, state}
+    else
+      {:reply, {:error, :not_in_hand_over}, state}
+    end
+  end
+
+  @impl true
   def handle_info({:ai_turn, seat}, state) do
     # Verify it's still this AI's turn
     if state.engine_state.current_player == seat and
@@ -189,27 +220,6 @@ defmodule PreferansWeb.Game.GameServer do
     end
   end
 
-  @impl true
-  def handle_info(:deal_next_hand, state) do
-    new_dealer = rem(state.current_dealer + 1, 3)
-
-    engine_state =
-      MockEngine.new_hand(
-        new_dealer,
-        state.match_bule,
-        state.match_refe_counts,
-        state.max_refes
-      )
-
-    state = %{state | engine_state: engine_state, current_dealer: new_dealer}
-    broadcast(state.game_id, {:new_hand_starting, state.game_id})
-    broadcast(state.game_id, {:game_state_updated, state.game_id})
-
-    state = maybe_schedule_ai_turn(state)
-
-    {:noreply, state}
-  end
-
   ## Internal
 
   defp handle_phase_transitions(state) do
@@ -227,7 +237,6 @@ defmodule PreferansWeb.Game.GameServer do
           broadcast(state.game_id, {:match_ended, state.game_id, final_scores(state)})
           state
         else
-          Process.send_after(self(), :deal_next_hand, 4000)
           state
         end
 

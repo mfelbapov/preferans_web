@@ -369,6 +369,12 @@ defmodule PreferansWebWeb.GameComponents do
             </div>
           </div>
         </div>
+
+        <div class="text-center mt-4">
+          <button phx-click="next_hand" class="btn-game btn-game-primary" id="next-hand-btn">
+            {gettext("Next Hand")} →
+          </button>
+        </div>
       </div>
     </div>
     """
