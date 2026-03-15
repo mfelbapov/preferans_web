@@ -8,6 +8,7 @@ defmodule PreferansWeb.Game do
 
   alias PreferansWeb.Game.Match
   alias PreferansWeb.Game.Hand
+  alias PreferansWeb.Game.GameServer
 
   ## Matches
 
@@ -66,5 +67,78 @@ defmodule PreferansWeb.Game do
     hand
     |> Hand.changeset(attrs)
     |> Repo.update()
+  end
+
+  ## Game lifecycle
+
+  def start_solo_game(user_id, opts \\ []) do
+    starting_bule = Keyword.get(opts, :starting_bule, [100, 100, 100])
+    max_refes = Keyword.get(opts, :max_refes, 2)
+
+    user = PreferansWeb.Accounts.get_user!(user_id)
+
+    match_attrs = %{
+      status: "in_progress",
+      mode: "1h2ai",
+      initial_bule: hd(starting_bule),
+      max_refes: max_refes,
+      player_0_id: user_id,
+      player_0_type: "human",
+      player_1_type: "ai",
+      player_2_type: "ai"
+    }
+
+    case create_match(match_attrs) do
+      {:ok, match} ->
+        init_arg = %{
+          game_id: to_string(match.id),
+          match_id: match.id,
+          starting_bule: starting_bule,
+          max_refes: max_refes,
+          current_dealer: 0,
+          refe_counts: [0, 0, 0],
+          players: [
+            %{seat: 0, user_id: user_id, is_ai: false, display_name: user.username || "Player"},
+            %{
+              seat: 1,
+              user_id: nil,
+              is_ai: true,
+              ai_level: "heuristic",
+              display_name: "Bot Duško"
+            },
+            %{
+              seat: 2,
+              user_id: nil,
+              is_ai: true,
+              ai_level: "heuristic",
+              display_name: "Bot Nikola"
+            }
+          ]
+        }
+
+        case DynamicSupervisor.start_child(PreferansWeb.GameSupervisor, {GameServer, init_arg}) do
+          {:ok, _pid} -> {:ok, to_string(match.id)}
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, changeset} ->
+        {:error, changeset}
+    end
+  end
+
+  def find_user_active_game(user_id) do
+    match =
+      from(m in Match,
+        where: m.player_0_id == ^user_id and m.status == "in_progress",
+        order_by: [desc: m.inserted_at],
+        limit: 1
+      )
+      |> Repo.one()
+
+    cond do
+      match == nil -> nil
+      GameServer.game_exists?(to_string(match.id)) -> to_string(match.id)
+      true -> nil
+    end
   end
 end
