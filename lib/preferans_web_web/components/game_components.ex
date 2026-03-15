@@ -107,9 +107,8 @@ defmodule PreferansWebWeb.GameComponents do
         </button>
         <button
           :for={{:bid, v} <- bid_buttons(@view.legal_actions)}
-          phx-click="bid"
-          phx-value-action="bid"
-          phx-value-value={v}
+          phx-click="bid_value"
+          phx-value-bid={to_string(v)}
           class="btn-game btn-game-primary"
         >
           {bid_label(v)}
@@ -254,6 +253,25 @@ defmodule PreferansWebWeb.GameComponents do
   defp format_defense(:dodjem), do: gettext("I defend")
   defp format_defense(:ne_dodjem), do: gettext("I pass")
 
+  ## Game info bar (shown during trick play and trick result)
+
+  attr :view, :map, required: true
+
+  def game_info_bar(assigns) do
+    ~H"""
+    <div
+      :if={@view.game_type}
+      class="flex items-center gap-2 text-xs text-green-200/70 bg-green-900/40 rounded px-3 py-1"
+    >
+      <span class="font-semibold text-green-100">
+        {Cards.game_name(@view.game_type)} {game_suit_symbol(@view.game_type)}
+      </span>
+      <span>—</span>
+      <span>{display_name(@view, @view.declarer)} {gettext("declares")}</span>
+    </div>
+    """
+  end
+
   ## Trick play phase
 
   attr :view, :map, required: true
@@ -265,6 +283,7 @@ defmodule PreferansWebWeb.GameComponents do
 
     ~H"""
     <div class="flex flex-col items-center gap-4">
+      <.game_info_bar view={@view} />
       <.trick_area
         current_trick={@view.current_trick}
         my_seat={@view.my_seat}
@@ -276,6 +295,41 @@ defmodule PreferansWebWeb.GameComponents do
       </div>
       <div :if={!@view.is_my_turn} class="text-green-200/60 text-sm">
         {gettext("Waiting for %{name} to play...", name: display_name(@view, @view.current_player))}
+      </div>
+    </div>
+    """
+  end
+
+  ## Trick result phase (pause after each trick)
+
+  attr :view, :map, required: true
+  attr :positions, :map, required: true
+
+  def trick_result_phase(assigns) do
+    ~H"""
+    <div class="flex flex-col items-center gap-4">
+      <.game_info_bar view={@view} />
+      <.trick_area
+        current_trick={@view.current_trick}
+        my_seat={@view.my_seat}
+        positions={@positions}
+      />
+
+      <div class="text-center">
+        <div class="text-green-100 text-sm mb-2">
+          {display_name(@view, @view.trick_winner)} {gettext("wins the trick")}
+        </div>
+        <div class="grid grid-cols-3 gap-4 text-center text-xs text-green-200/70 mb-3">
+          <div :for={seat <- [0, 1, 2]}>
+            <span class="font-medium">{display_name(@view, seat)}</span>: {Enum.at(
+              @view.tricks_won,
+              seat
+            )}
+          </div>
+        </div>
+        <button phx-click="next_trick" class="btn-game btn-game-primary" id="next-trick-btn">
+          {gettext("Next")} →
+        </button>
       </div>
     </div>
     """

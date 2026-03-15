@@ -29,6 +29,7 @@ defmodule PreferansWeb.Game.MockEngine do
       trick_number: 0,
       current_trick: [],
       trick_leader: nil,
+      trick_winner: nil,
       tricks_won: [0, 0, 0],
       played_cards: [],
       bule: bule,
@@ -45,6 +46,7 @@ defmodule PreferansWeb.Game.MockEngine do
       :declare_game -> declare_game_actions(state)
       :defense -> [:dodjem, :ne_dodjem]
       :trick_play -> trick_play_actions(state)
+      :trick_result -> [:next_trick]
       _ -> []
     end
   end
@@ -75,13 +77,14 @@ defmodule PreferansWeb.Game.MockEngine do
       bid_history: state.bid_history,
       highest_bid: state.highest_bid,
       declarer: state.declarer,
-      talon: if(state.phase != :bid, do: state.talon, else: nil),
+      talon: if(state.phase == :discard, do: state.talon, else: nil),
       discards: if(seat == state.declarer, do: state.discards, else: nil),
       game_type: state.game_type,
       defense_responses: state.defense_responses,
       defenders: state.defenders,
       trick_number: state.trick_number,
       current_trick: state.current_trick,
+      trick_winner: state.trick_winner,
       tricks_won: state.tricks_won,
       played_cards: state.played_cards,
       bule: state.bule,
@@ -210,6 +213,20 @@ defmodule PreferansWeb.Game.MockEngine do
     end
   end
 
+  defp do_apply_action(%{phase: :trick_result} = state, :next_trick) do
+    if state.trick_number >= 10 do
+      transition_to_scoring(%{state | current_trick: [], trick_winner: nil})
+    else
+      %{
+        state
+        | phase: :trick_play,
+          current_trick: [],
+          trick_winner: nil,
+          current_player: state.trick_leader
+      }
+    end
+  end
+
   defp do_apply_action(%{phase: :trick_play} = state, {:play, card}) do
     seat = state.current_player
     hand = Enum.at(state.hands, seat) |> List.delete(card)
@@ -239,6 +256,12 @@ defmodule PreferansWeb.Game.MockEngine do
 
   defp first_bidder(dealer), do: rem(dealer + 2, 3)
 
+  defp trump_suit(:pik), do: :pik
+  defp trump_suit(:karo), do: :karo
+  defp trump_suit(:herc), do: :herc
+  defp trump_suit(:tref), do: :tref
+  defp trump_suit(_), do: nil
+
   defp bid_actions(state) do
     higher_bids = for v <- 2..7, v > state.highest_bid, do: {:bid, v}
     [:dalje | higher_bids]
@@ -260,6 +283,7 @@ defmodule PreferansWeb.Game.MockEngine do
 
   defp trick_play_actions(state) do
     hand = Enum.at(state.hands, state.current_player)
+    trump = trump_suit(state.game_type)
 
     if state.current_trick == [] do
       Enum.map(hand, &{:play, &1})
@@ -267,36 +291,55 @@ defmodule PreferansWeb.Game.MockEngine do
       {led_suit, _} = hd(state.current_trick).card
       suited = Enum.filter(hand, fn {s, _} -> s == led_suit end)
 
-      if suited == [] do
-        Enum.map(hand, &{:play, &1})
-      else
-        Enum.map(suited, &{:play, &1})
+      cond do
+        suited != [] ->
+          Enum.map(suited, &{:play, &1})
+
+        # Must play trump if can't follow suit (suit games only)
+        trump != nil ->
+          trumps = Enum.filter(hand, fn {s, _} -> s == trump end)
+          if trumps != [], do: Enum.map(trumps, &{:play, &1}), else: Enum.map(hand, &{:play, &1})
+
+        # Betl/Sans — no trump, play anything
+        true ->
+          Enum.map(hand, &{:play, &1})
       end
     end
   end
 
   defp resolve_trick(state) do
     {led_suit, _} = hd(state.current_trick).card
+    trump_suit = trump_suit(state.game_type)
 
     winner_entry =
-      state.current_trick
-      |> Enum.filter(fn %{card: {s, _}} -> s == led_suit end)
-      |> Enum.max_by(fn %{card: {_, r}} -> Cards.rank_value(r) end)
+      cond do
+        # Trump game and someone played trump
+        trump_suit != nil and
+            Enum.any?(state.current_trick, fn %{card: {s, _}} -> s == trump_suit end) ->
+          state.current_trick
+          |> Enum.filter(fn %{card: {s, _}} -> s == trump_suit end)
+          |> Enum.max_by(fn %{card: {_, r}} -> Cards.rank_value(r) end)
+
+        # No trump played or no-trump game — highest of led suit wins
+        true ->
+          state.current_trick
+          |> Enum.filter(fn %{card: {s, _}} -> s == led_suit end)
+          |> Enum.max_by(fn %{card: {_, r}} -> Cards.rank_value(r) end)
+      end
 
     winner = winner_entry.player
     tricks_won = List.update_at(state.tricks_won, winner, &(&1 + 1))
     trick_number = state.trick_number + 1
 
-    state = %{
+    %{
       state
-      | tricks_won: tricks_won,
+      | phase: :trick_result,
+        tricks_won: tricks_won,
         trick_number: trick_number,
-        current_trick: [],
+        trick_winner: winner,
         trick_leader: winner,
         current_player: winner
     }
-
-    if trick_number >= 10, do: transition_to_scoring(state), else: state
   end
 
   defp transition_to_talon_reveal(state) do
@@ -325,7 +368,11 @@ defmodule PreferansWeb.Game.MockEngine do
         tricks: state.tricks_won
       }
     else
-      declarer_passed = declarer_tricks >= 6
+      declarer_passed =
+        cond do
+          state.game_type == :betl -> declarer_tricks == 0
+          true -> declarer_tricks >= 6
+        end
 
       bule_changes =
         if declarer_passed do

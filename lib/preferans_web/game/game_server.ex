@@ -30,6 +30,12 @@ defmodule PreferansWeb.Game.GameServer do
     :exit, _ -> {:error, :not_found}
   end
 
+  def continue(game_id) do
+    GenServer.call(via(game_id), :continue)
+  catch
+    :exit, _ -> {:error, :not_found}
+  end
+
   def subscribe(game_id) do
     PubSub.subscribe(@pubsub, topic(game_id))
   end
@@ -104,6 +110,25 @@ defmodule PreferansWeb.Game.GameServer do
       })
 
     {:reply, {:ok, view}, state}
+  end
+
+  @impl true
+  def handle_call(:continue, _from, state) do
+    if state.engine_state.phase == :trick_result do
+      case MockEngine.apply_action(state.engine_state, :next_trick) do
+        {:ok, new_engine_state} ->
+          state = %{state | engine_state: new_engine_state}
+          broadcast(state.game_id, {:game_state_updated, state.game_id})
+          state = handle_phase_transitions(state)
+          state = maybe_schedule_ai_turn(state)
+          {:reply, :ok, state}
+
+        {:error, reason} ->
+          {:reply, {:error, reason}, state}
+      end
+    else
+      {:reply, {:error, :not_in_trick_result}, state}
+    end
   end
 
   @impl true
@@ -260,7 +285,8 @@ defmodule PreferansWeb.Game.GameServer do
     seat = state.engine_state.current_player
     player = Enum.find(state.players, &(&1.seat == seat))
 
-    if player && player.is_ai && state.engine_state.phase not in [:hand_over, :scoring] do
+    if player && player.is_ai &&
+         state.engine_state.phase not in [:hand_over, :scoring, :trick_result] do
       Process.send_after(self(), {:ai_turn, seat}, ai_delay(state))
     end
 

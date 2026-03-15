@@ -25,8 +25,7 @@ defmodule PreferansWebWeb.CardComponent do
       <% color_class = if Cards.suit_color(suit) == :red, do: "text-card-red", else: "text-card-black" %>
       <div
         class={card_face_classes(@size, @clickable, @selected, @dimmed)}
-        phx-click={@click_event}
-        phx-value-card={@click_value}
+        {if @click_event, do: [{"phx-click", @click_event}, {"phx-value-card", @click_value}], else: []}
       >
         <div class={["absolute top-0.5 left-1 leading-none text-center", color_class]}>
           <div class={rank_class(@size)}>{Cards.rank_label(rank)}</div>

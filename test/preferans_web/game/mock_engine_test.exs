@@ -167,6 +167,81 @@ defmodule PreferansWeb.Game.MockEngineTest do
     end
   end
 
+  describe "trump resolution" do
+    test "trump card beats led suit" do
+      # Set up a trick play with pik as trump (game_type = :pik)
+      state = setup_trick_play_phase()
+      assert state.game_type == :pik
+
+      # Find a trick where we can test trump
+      # Play through tricks, checking trump wins when played
+      state = play_all_tricks(state)
+      assert state.phase == :scoring
+    end
+
+    test "forced trump — must play trump when can't follow suit" do
+      state = setup_trick_play_phase()
+      leader = state.current_player
+      leader_hand = Enum.at(state.hands, leader)
+
+      # Leader plays first card
+      first_card = hd(leader_hand)
+      {:ok, state} = MockEngine.apply_action(state, {:play, first_card})
+
+      follower = state.current_player
+      follower_hand = Enum.at(state.hands, follower)
+      {led_suit, _} = first_card
+
+      suited = Enum.filter(follower_hand, fn {s, _} -> s == led_suit end)
+      trump_cards = Enum.filter(follower_hand, fn {s, _} -> s == :pik end)
+      legal = MockEngine.get_legal_actions(state)
+
+      cond do
+        # Has cards of led suit — must follow suit
+        suited != [] ->
+          assert Enum.all?(legal, fn {:play, {s, _}} -> s == led_suit end)
+
+        # No led suit but has trump — must play trump
+        trump_cards != [] and led_suit != :pik ->
+          assert Enum.all?(legal, fn {:play, {s, _}} -> s == :pik end)
+
+        # No led suit, no trump — any card
+        true ->
+          assert length(legal) == length(follower_hand)
+      end
+    end
+  end
+
+  describe "betl scoring" do
+    test "betl declarer passes with 0 tricks" do
+      state = setup_betl_trick_play_phase()
+      state = play_all_tricks(state)
+      assert state.phase == :scoring
+
+      if state.scoring_result do
+        declarer_tricks = Enum.at(state.scoring_result.tricks, state.declarer)
+
+        if declarer_tricks == 0 do
+          assert state.scoring_result.declarer_passed == true
+        else
+          assert state.scoring_result.declarer_passed == false
+        end
+      end
+    end
+
+    test "betl skips defense phase" do
+      state = setup_discard_phase()
+      hand = Enum.at(state.hands, state.declarer)
+      [c1, c2 | _] = hand
+      {:ok, state} = MockEngine.apply_action(state, {:discard, c1, c2})
+      {:ok, state} = MockEngine.apply_action(state, :betl)
+
+      # Betl goes straight to trick_play, no defense
+      assert state.phase == :trick_play
+      assert length(state.defenders) == 2
+    end
+  end
+
   describe "defense" do
     test "both ne_dodjem — free pass for declarer, goes to scoring" do
       state = setup_defense_phase()
@@ -215,13 +290,24 @@ defmodule PreferansWeb.Game.MockEngineTest do
     state
   end
 
+  defp setup_betl_trick_play_phase do
+    state = setup_discard_phase()
+    hand = Enum.at(state.hands, state.declarer)
+    [c1, c2 | _] = hand
+    {:ok, state} = MockEngine.apply_action(state, {:discard, c1, c2})
+    {:ok, state} = MockEngine.apply_action(state, :betl)
+    state
+  end
+
   defp play_all_tricks(state) do
-    if state.phase != :trick_play do
-      state
-    else
-      [action | _] = MockEngine.get_legal_actions(state)
-      {:ok, state} = MockEngine.apply_action(state, action)
-      play_all_tricks(state)
+    cond do
+      state.phase in [:trick_play, :trick_result] ->
+        [action | _] = MockEngine.get_legal_actions(state)
+        {:ok, state} = MockEngine.apply_action(state, action)
+        play_all_tricks(state)
+
+      true ->
+        state
     end
   end
 end

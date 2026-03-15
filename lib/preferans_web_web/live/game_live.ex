@@ -67,15 +67,12 @@ defmodule PreferansWebWeb.GameLive do
 
   @impl true
   def handle_event("bid", %{"action" => "dalje"}, socket) do
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, :dalje)
-    {:noreply, socket}
+    submit(socket, :dalje)
   end
 
   @impl true
-  def handle_event("bid", %{"action" => "bid", "value" => value}, socket) do
-    v = String.to_integer(value)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, {:bid, v})
-    {:noreply, socket}
+  def handle_event("bid_value", %{"bid" => value}, socket) do
+    submit(socket, {:bid, String.to_integer(value)})
   end
 
   @impl true
@@ -96,35 +93,36 @@ defmodule PreferansWebWeb.GameLive do
   @impl true
   def handle_event("confirm_discard", _params, socket) do
     [card1, card2] = MapSet.to_list(socket.assigns.selected_discards)
-
-    GameServer.submit_action(
-      socket.assigns.game_id,
-      socket.assigns.seat,
-      {:discard, card1, card2}
-    )
-
-    {:noreply, assign(socket, selected_discards: MapSet.new())}
+    socket = assign(socket, selected_discards: MapSet.new())
+    submit(socket, {:discard, card1, card2})
   end
 
   @impl true
   def handle_event("declare_game", %{"game" => game_str}, socket) do
-    game = String.to_existing_atom(game_str)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, game)
-    {:noreply, socket}
+    submit(socket, String.to_existing_atom(game_str))
   end
 
   @impl true
   def handle_event("defense", %{"action" => action_str}, socket) do
-    action = String.to_existing_atom(action_str)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, action)
+    submit(socket, String.to_existing_atom(action_str))
+  end
+
+  @impl true
+  def handle_event("next_trick", _params, socket) do
+    GameServer.continue(socket.assigns.game_id)
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("play_card", %{"card" => card_str}, socket) do
-    card = Cards.parse_card_key(card_str)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, {:play, card})
-    {:noreply, socket}
+    submit(socket, {:play, Cards.parse_card_key(card_str)})
+  end
+
+  defp submit(socket, action) do
+    case GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, action) do
+      :ok -> {:noreply, socket}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Action failed: #{reason}")}
+    end
   end
 
   ## Render
@@ -194,6 +192,8 @@ defmodule PreferansWebWeb.GameLive do
                 <.defense_phase view={@view} />
               <% :trick_play -> %>
                 <.trick_play_phase view={@view} positions={@positions} />
+              <% :trick_result -> %>
+                <.trick_result_phase view={@view} positions={@positions} />
               <% phase when phase in [:scoring, :hand_over] -> %>
                 <.scoring_phase view={@view} />
               <% _ -> %>
@@ -213,7 +213,7 @@ defmodule PreferansWebWeb.GameLive do
               <span :if={@view.declarer == @seat} class="text-amber-300 text-xs">(D)</span>
             </div>
 
-            <div :if={@view.phase != :discard}>
+            <div :if={@view.phase != :discard or @view.declarer != @seat}>
               <.my_hand view={@view} phase_clickable={@view.phase == :trick_play} />
             </div>
 
@@ -256,8 +256,7 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   defp show_talon?(view) do
-    view.phase in [:bid, :discard, :declare_game] or
-      (view.talon != nil and view.phase not in [:trick_play, :scoring, :hand_over])
+    view.phase == :bid or (view.phase == :discard and view.talon != nil)
   end
 
   defp phase_label(:bid), do: "Bidding"
@@ -265,6 +264,7 @@ defmodule PreferansWebWeb.GameLive do
   defp phase_label(:declare_game), do: "Declare"
   defp phase_label(:defense), do: "Defense"
   defp phase_label(:trick_play), do: "Trick Play"
+  defp phase_label(:trick_result), do: "Trick Result"
   defp phase_label(:scoring), do: "Scoring"
   defp phase_label(:hand_over), do: "Hand Over"
   defp phase_label(_), do: ""
