@@ -7,6 +7,19 @@
 # General application configuration
 import Config
 
+config :preferans_web, :scopes,
+  user: [
+    default: true,
+    module: PreferansWeb.Accounts.Scope,
+    assign_key: :current_scope,
+    access_path: [:user, :id],
+    schema_key: :user_id,
+    schema_type: :id,
+    schema_table: :users,
+    test_data_fixture: PreferansWeb.AccountsFixtures,
+    test_setup_helper: :register_and_log_in_user
+  ]
+
 config :preferans_web,
   ecto_repos: [PreferansWeb.Repo],
   generators: [timestamp_type: :utc_datetime]
