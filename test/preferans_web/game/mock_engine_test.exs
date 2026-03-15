@@ -222,12 +222,30 @@ defmodule PreferansWeb.Game.MockEngineTest do
   ## Trick play
 
   describe "trick play" do
-    test "10 tricks complete leads to scoring" do
+    test "suit game plays all 10 tricks" do
       state = setup_trick_play_phase()
       state = play_all_tricks(state)
 
       assert state.phase == :scoring
       assert Enum.sum(state.tricks_won) == 10
+    end
+
+    test "betl ends immediately when declarer takes a trick" do
+      state = setup_betl_trick_play_phase()
+      state = play_all_tricks(state)
+
+      assert state.phase == :scoring
+      declarer_tricks = Enum.at(state.tricks_won, state.declarer)
+
+      if declarer_tricks > 0 do
+        # Hand ended early — not all 10 tricks played
+        assert Enum.sum(state.tricks_won) < 10
+        assert state.scoring_result.declarer_passed == false
+      else
+        # Declarer took 0 — all 10 played
+        assert Enum.sum(state.tricks_won) == 10
+        assert state.scoring_result.declarer_passed == true
+      end
     end
 
     test "follow suit enforced — must play led suit if available" do
@@ -357,7 +375,6 @@ defmodule PreferansWeb.Game.MockEngineTest do
       state = setup_betl_trick_play_phase()
       state = play_all_tricks(state)
       assert state.phase == :scoring
-      assert Enum.sum(state.tricks_won) == 10
     end
   end
 
@@ -546,10 +563,9 @@ defmodule PreferansWeb.Game.MockEngineTest do
       {:ok, state} = MockEngine.apply_action(state, :betl)
       assert state.phase == :trick_play
 
-      # Play all tricks
+      # Play all tricks (may end early if declarer takes a trick)
       state = play_all_tricks(state)
       assert state.phase == :scoring
-      assert Enum.sum(state.tricks_won) == 10
     end
   end
 

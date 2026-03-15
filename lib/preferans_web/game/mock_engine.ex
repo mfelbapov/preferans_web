@@ -347,15 +347,36 @@ defmodule PreferansWeb.Game.MockEngine do
     tricks_won = List.update_at(state.tricks_won, winner, &(&1 + 1))
     trick_number = state.trick_number + 1
 
-    %{
+    state = %{
       state
-      | phase: :trick_result,
-        tricks_won: tricks_won,
+      | tricks_won: tricks_won,
         trick_number: trick_number,
         trick_winner: winner,
         trick_leader: winner,
         current_player: winner
     }
+
+    if hand_decided?(state) do
+      # Hand is over early — go straight to scoring
+      transition_to_scoring(%{state | current_trick: [], trick_winner: nil})
+    else
+      %{state | phase: :trick_result}
+    end
+  end
+
+  defp hand_decided?(state) do
+    cond do
+      # Betl: declarer took a trick — instant fail
+      state.game_type == :betl and Enum.at(state.tricks_won, state.declarer) > 0 ->
+        true
+
+      # All 10 tricks played
+      state.trick_number >= 10 ->
+        true
+
+      true ->
+        false
+    end
   end
 
   defp transition_to_talon_reveal(state) do
