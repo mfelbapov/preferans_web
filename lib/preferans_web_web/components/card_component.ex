@@ -15,8 +15,14 @@ defmodule PreferansWebWeb.CardComponent do
   attr :size, :atom, default: :normal, doc: ":normal or :small"
   attr :click_event, :string, default: nil
   attr :click_value, :string, default: nil
+  attr :id, :string, default: nil
 
   def card(assigns) do
+    assigns =
+      assign_new(assigns, :dom_id, fn ->
+        assigns[:id]
+      end)
+
     ~H"""
     <%= if @face == :down or @card == nil do %>
       <div class={card_back_classes(@size)} />
@@ -24,6 +30,7 @@ defmodule PreferansWebWeb.CardComponent do
       <% {suit, rank} = @card %>
       <% color_class = if Cards.suit_color(suit) == :red, do: "text-card-red", else: "text-card-black" %>
       <div
+        id={@dom_id}
         class={card_face_classes(@size, @clickable, @selected, @dimmed)}
         phx-click={@click_event}
         phx-value-card={@click_value}
@@ -48,22 +55,28 @@ defmodule PreferansWebWeb.CardComponent do
   end
 
   defp card_face_classes(size, clickable, selected, dimmed) do
-    base = "relative rounded-lg border border-stone-300 bg-card-cream shadow-sm select-none"
+    base = [
+      "relative rounded-lg border bg-card-cream select-none transition-transform duration-150",
+      if(size == :small, do: "w-[60px] h-[84px]", else: "w-[90px] h-[126px]")
+    ]
 
-    size_class = if size == :small, do: "w-[60px] h-[84px]", else: "w-[90px] h-[126px]"
+    state =
+      cond do
+        selected ->
+          "border-blue-400 -translate-y-3 ring-2 ring-blue-400 z-10 shadow-lg"
 
-    click_class =
-      if clickable and not dimmed, do: "cursor-pointer hover:scale-105 hover:shadow-md", else: ""
+        dimmed ->
+          "border-stone-300 opacity-40 cursor-default shadow-sm"
 
-    selected_class =
-      if selected,
-        do: "-translate-y-2 ring-2 ring-blue-400 shadow-lg shadow-blue-400/30",
-        else: ""
+        clickable ->
+          "border-stone-300 cursor-pointer hover:scale-105 hover:-translate-y-1 shadow-sm"
 
-    dimmed_class = if dimmed, do: "opacity-40 cursor-default", else: ""
+        true ->
+          "border-stone-300 shadow-sm"
+      end
 
-    [base, size_class, click_class, selected_class, dimmed_class]
-    |> Enum.filter(&(&1 != ""))
+    (base ++ [state])
+    |> List.flatten()
     |> Enum.join(" ")
   end
 

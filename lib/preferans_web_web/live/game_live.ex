@@ -76,6 +76,11 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   @impl true
+  def handle_event("bid_moje", _params, socket) do
+    submit(socket, :moje)
+  end
+
+  @impl true
   def handle_event("toggle_discard", %{"card" => card_str}, socket) do
     card = Cards.parse_card_key(card_str)
     selected = socket.assigns.selected_discards
@@ -99,7 +104,7 @@ defmodule PreferansWebWeb.GameLive do
 
   @impl true
   def handle_event("declare_game", %{"game" => game_str}, socket) do
-    submit(socket, String.to_existing_atom(game_str))
+    submit(socket, {:declare, String.to_existing_atom(game_str)})
   end
 
   @impl true
@@ -178,7 +183,8 @@ defmodule PreferansWebWeb.GameLive do
               <div class="text-green-300/50 text-xs text-center mb-1 w-full">Talon</div>
               <div class="flex gap-2">
                 <.card
-                  :for={c <- @view.talon || [nil, nil]}
+                  :for={{c, i} <- Enum.with_index(@view.talon || [nil, nil])}
+                  id={if c, do: "talon-#{elem(c, 0)}-#{elem(c, 1)}", else: "talon-back-#{i}"}
                   card={c}
                   face={if @view.talon, do: :up, else: :down}
                   size={:small}

@@ -57,7 +57,7 @@ defmodule PreferansWebWeb.GameComponents do
         :for={entry <- @current_trick}
         class={trick_card_position(entry.player, @my_seat, @positions)}
       >
-        <.card card={entry.card} size={:small} />
+        <.card id={"trick-#{card_dom_id(entry.card)}"} card={entry.card} size={:small} />
       </div>
     </div>
     """
@@ -113,6 +113,13 @@ defmodule PreferansWebWeb.GameComponents do
         >
           {bid_label(v)}
         </button>
+        <button
+          :if={:moje in @view.legal_actions}
+          phx-click="bid_moje"
+          class="btn-game btn-game-accent"
+        >
+          {gettext("Moje")}
+        </button>
       </div>
     </div>
     """
@@ -137,6 +144,7 @@ defmodule PreferansWebWeb.GameComponents do
 
   defp format_bid_action(:dalje), do: gettext("Pass")
   defp format_bid_action({:bid, v}), do: bid_label(v)
+  defp format_bid_action({:moje, v}), do: "#{gettext("Moje")} (#{bid_label(v)})"
 
   ## Discard phase
 
@@ -153,6 +161,7 @@ defmodule PreferansWebWeb.GameComponents do
         <div class="flex flex-wrap gap-1 justify-center">
           <.card
             :for={c <- @view.my_hand}
+            id={"discard-#{card_dom_id(c)}"}
             card={c}
             clickable={true}
             selected={MapSet.member?(@selected, c)}
@@ -196,7 +205,7 @@ defmodule PreferansWebWeb.GameComponents do
         <p class="text-green-100 text-sm mb-3 text-center">{gettext("Choose your game")}</p>
         <div class="flex flex-wrap gap-2 justify-center">
           <button
-            :for={game <- @view.legal_actions}
+            :for={{:declare, game} <- @view.legal_actions}
             phx-click="declare_game"
             phx-value-game={game}
             class="btn-game btn-game-primary"
@@ -496,6 +505,7 @@ defmodule PreferansWebWeb.GameComponents do
     <div class="flex flex-wrap gap-1 justify-center">
       <.card
         :for={c <- @view.my_hand}
+        id={"hand-#{card_dom_id(c)}"}
         card={c}
         clickable={MapSet.member?(@playable, c)}
         dimmed={@phase_clickable and @view.is_my_turn and not MapSet.member?(@playable, c)}
@@ -518,6 +528,8 @@ defmodule PreferansWebWeb.GameComponents do
     |> Enum.map(fn {:play, card} -> card end)
     |> MapSet.new()
   end
+
+  defp card_dom_id({suit, rank}), do: "#{suit}-#{rank}"
 
   defp refe_filled(count) when count > 0, do: 1..count
   defp refe_filled(_), do: []

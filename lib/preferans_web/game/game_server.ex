@@ -260,9 +260,8 @@ defmodule PreferansWeb.Game.GameServer do
       end
 
     new_supe =
-      Enum.reduce(result.supe_changes, state.match_supe_ledger, fn change, ledger ->
-        key = {change.from, change.to}
-        Map.update(ledger, key, change.amount, &(&1 + change.amount))
+      Enum.reduce(result.supe_changes, state.match_supe_ledger, fn {key, amount}, ledger ->
+        Map.update(ledger, key, amount, &(&1 + amount))
       end)
 
     engine_state = %{state.engine_state | phase: :hand_over}
@@ -320,9 +319,19 @@ defmodule PreferansWeb.Game.GameServer do
         r = :rand.uniform(100)
 
         cond do
-          r <= 70 -> :dalje
-          r <= 90 -> Enum.find(legal, :dalje, &match?({:bid, _}, &1))
-          true -> Enum.reverse(legal) |> Enum.find(:dalje, &match?({:bid, _}, &1))
+          r <= 70 ->
+            :dalje
+
+          r <= 90 ->
+            Enum.find(legal, :dalje, &match?({:bid, _}, &1))
+
+          # Try moje first, then highest bid
+          true ->
+            if :moje in legal do
+              :moje
+            else
+              Enum.reverse(legal) |> Enum.find(:dalje, &match?({:bid, _}, &1))
+            end
         end
 
       :defense ->
@@ -338,7 +347,7 @@ defmodule PreferansWeb.Game.GameServer do
         Enum.random(legal)
 
       :declare_game ->
-        # Pick game matching highest bid value
+        # Pick first legal declaration (lowest value game)
         hd(legal)
 
       _ ->
