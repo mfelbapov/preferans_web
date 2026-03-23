@@ -38,3 +38,9 @@ config :phoenix, :plug_init_mode, :runtime
 # Enable helpful, but potentially expensive runtime checks
 config :phoenix_live_view,
   enable_expensive_runtime_checks: true
+
+# C++ game engine binary path
+config :preferans_web,
+       :cpp_engine_path,
+       System.get_env("PREFERANS_ENGINE_PATH") ||
+         Path.expand("../../preferans/build/preferans_server", __DIR__)

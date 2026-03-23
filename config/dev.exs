@@ -84,5 +84,16 @@ config :phoenix_live_view,
   # Enable helpful, but potentially expensive runtime checks
   enable_expensive_runtime_checks: true
 
+# C++ game engine binary and model paths
+config :preferans_web,
+       :cpp_engine_path,
+       System.get_env("PREFERANS_ENGINE_PATH") ||
+         Path.expand("../../preferans/build/preferans_server", __DIR__)
+
+config :preferans_web,
+       :cpp_model_dir,
+       System.get_env("PREFERANS_MODEL_DIR") ||
+         Path.expand("../priv/models", __DIR__)
+
 # Disable swoosh api client as it is only required for production adapters.
 config :swoosh, :api_client, false

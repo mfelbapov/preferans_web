@@ -25,7 +25,9 @@ defmodule PreferansWebWeb.GameLive do
          view: view,
          positions: positions,
          selected_discards: MapSet.new(),
-         show_scoring: false
+         show_scoring: false,
+         show_debug: false,
+         debug_state: nil
        ), layout: false}
     else
       {:ok, socket |> put_flash(:error, "Game not found") |> redirect(to: ~p"/lobby")}
@@ -37,7 +39,17 @@ defmodule PreferansWebWeb.GameLive do
   @impl true
   def handle_info({:game_state_updated, _game_id}, socket) do
     {:ok, view} = GameServer.get_player_view(socket.assigns.game_id, socket.assigns.seat)
-    {:noreply, assign(socket, :view, view)}
+    socket = assign(socket, :view, view)
+
+    socket =
+      if socket.assigns.show_debug do
+        {:ok, debug} = GameServer.get_debug_state(socket.assigns.game_id, socket.assigns.seat)
+        assign(socket, :debug_state, debug)
+      else
+        socket
+      end
+
+    {:noreply, socket}
   end
 
   @impl true
@@ -67,15 +79,22 @@ defmodule PreferansWebWeb.GameLive do
 
   @impl true
   def handle_event("bid", %{"action" => "dalje"}, socket) do
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, :dalje)
-    {:noreply, socket}
+    submit(socket, :dalje)
   end
 
   @impl true
-  def handle_event("bid", %{"action" => "bid", "value" => value}, socket) do
-    v = String.to_integer(value)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, {:bid, v})
-    {:noreply, socket}
+  def handle_event("bid_value", %{"bid" => value}, socket) do
+    submit(socket, {:bid, String.to_integer(value)})
+  end
+
+  @impl true
+  def handle_event("bid_moje", _params, socket) do
+    submit(socket, :moje)
+  end
+
+  @impl true
+  def handle_event("bid_igra", %{"action" => action_str}, socket) do
+    submit(socket, String.to_existing_atom(action_str))
   end
 
   @impl true
@@ -96,35 +115,56 @@ defmodule PreferansWebWeb.GameLive do
   @impl true
   def handle_event("confirm_discard", _params, socket) do
     [card1, card2] = MapSet.to_list(socket.assigns.selected_discards)
-
-    GameServer.submit_action(
-      socket.assigns.game_id,
-      socket.assigns.seat,
-      {:discard, card1, card2}
-    )
-
-    {:noreply, assign(socket, selected_discards: MapSet.new())}
+    socket = assign(socket, selected_discards: MapSet.new())
+    submit(socket, {:discard, card1, card2})
   end
 
   @impl true
   def handle_event("declare_game", %{"game" => game_str}, socket) do
-    game = String.to_existing_atom(game_str)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, game)
-    {:noreply, socket}
+    submit(socket, {:declare, String.to_existing_atom(game_str)})
   end
 
   @impl true
   def handle_event("defense", %{"action" => action_str}, socket) do
-    action = String.to_existing_atom(action_str)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, action)
+    submit(socket, String.to_existing_atom(action_str))
+  end
+
+  @impl true
+  def handle_event("kontra", %{"action" => action_str}, socket) do
+    submit(socket, String.to_existing_atom(action_str))
+  end
+
+  @impl true
+  def handle_event("next_hand", _params, socket) do
+    GameServer.deal_next_hand(socket.assigns.game_id)
     {:noreply, socket}
   end
 
   @impl true
   def handle_event("play_card", %{"card" => card_str}, socket) do
-    card = Cards.parse_card_key(card_str)
-    GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, {:play, card})
+    submit(socket, {:play, Cards.parse_card_key(card_str)})
+  end
+
+  @impl true
+  def handle_event("toggle_debug", _params, socket) do
+    show = !socket.assigns.show_debug
+
+    socket =
+      if show do
+        {:ok, debug} = GameServer.get_debug_state(socket.assigns.game_id, socket.assigns.seat)
+        assign(socket, show_debug: true, debug_state: debug)
+      else
+        assign(socket, show_debug: false, debug_state: nil)
+      end
+
     {:noreply, socket}
+  end
+
+  defp submit(socket, action) do
+    case GameServer.submit_action(socket.assigns.game_id, socket.assigns.seat, action) do
+      :ok -> {:noreply, socket}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Action failed: #{reason}")}
+    end
   end
 
   ## Render
@@ -140,8 +180,20 @@ defmodule PreferansWebWeb.GameLive do
           <.link navigate={~p"/lobby"} class="text-green-300/60 text-sm hover:text-green-200">
             ← {gettext("Back to Lobby")}
           </.link>
-          <div class="text-green-300/50 text-xs">
-            {phase_label(@view.phase)}
+          <div class="flex items-center gap-3">
+            <div class="text-green-300/50 text-xs">
+              {phase_label(@view.phase)}
+            </div>
+            <button
+              phx-click="toggle_debug"
+              class={[
+                "text-xs px-2 py-0.5 rounded",
+                @show_debug && "bg-amber-600 text-white",
+                !@show_debug && "bg-gray-700 text-gray-400 hover:text-gray-200"
+              ]}
+            >
+              Debug
+            </button>
           </div>
         </div>
 
@@ -155,7 +207,10 @@ defmodule PreferansWebWeb.GameLive do
               tricks={Enum.at(@view.tricks_won, @positions.left)}
               is_current={@view.current_player == @positions.left}
               is_declarer={@view.declarer == @positions.left}
+              is_dealer={@view.dealer == @positions.left}
               position={:left}
+              open_hand={Map.get(@view.defender_hands, @positions.left)}
+              playable_cards={defender_playable(@view, @positions.left)}
             />
             <.opponent_area
               name={display_name(@view, @positions.right)}
@@ -163,7 +218,10 @@ defmodule PreferansWebWeb.GameLive do
               tricks={Enum.at(@view.tricks_won, @positions.right)}
               is_current={@view.current_player == @positions.right}
               is_declarer={@view.declarer == @positions.right}
+              is_dealer={@view.dealer == @positions.right}
               position={:right}
+              open_hand={Map.get(@view.defender_hands, @positions.right)}
+              playable_cards={defender_playable(@view, @positions.right)}
             />
           </div>
 
@@ -174,7 +232,8 @@ defmodule PreferansWebWeb.GameLive do
               <div class="text-green-300/50 text-xs text-center mb-1 w-full">Talon</div>
               <div class="flex gap-2">
                 <.card
-                  :for={c <- @view.talon || [nil, nil]}
+                  :for={{c, i} <- Enum.with_index(@view.talon || [nil, nil])}
+                  id={if c, do: "talon-#{elem(c, 0)}-#{elem(c, 1)}", else: "talon-back-#{i}"}
                   card={c}
                   face={if @view.talon, do: :up, else: :down}
                   size={:small}
@@ -192,9 +251,11 @@ defmodule PreferansWebWeb.GameLive do
                 <.declare_game_phase view={@view} />
               <% :defense -> %>
                 <.defense_phase view={@view} />
+              <% :kontra -> %>
+                <.kontra_phase view={@view} />
               <% :trick_play -> %>
                 <.trick_play_phase view={@view} positions={@positions} />
-              <% phase when phase in [:scoring, :hand_over] -> %>
+              <% :hand_over -> %>
                 <.scoring_phase view={@view} />
               <% _ -> %>
                 <div class="text-green-200/60 text-sm">{gettext("Waiting...")}</div>
@@ -210,10 +271,18 @@ defmodule PreferansWebWeb.GameLive do
                 !@view.is_my_turn && "bg-transparent"
               ]} />
               <span class="font-medium">{display_name(@view, @seat)}</span>
-              <span :if={@view.declarer == @seat} class="text-amber-300 text-xs">(D)</span>
+              <span :if={@view.dealer == @seat} class="text-green-400/70 text-2xl">
+                {gettext("Ⓓ")}
+              </span>
+              <span
+                :if={@view.declarer == @seat}
+                class="bg-red-600 text-white text-xs font-bold uppercase px-1.5 py-0.5 rounded"
+              >
+                {gettext("IGRAC")}
+              </span>
             </div>
 
-            <div :if={@view.phase != :discard}>
+            <div :if={@view.phase != :discard or @view.declarer != @seat}>
               <.my_hand view={@view} phase_clickable={@view.phase == :trick_play} />
             </div>
 
@@ -226,6 +295,9 @@ defmodule PreferansWebWeb.GameLive do
 
       <%!-- Scoring sidebar --%>
       <.scoring_sidebar view={@view} />
+
+      <%!-- Debug panel --%>
+      <.debug_panel :if={@show_debug && @debug_state} debug_state={@debug_state} />
     </div>
     """
   end
@@ -244,9 +316,11 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   defp seat_positions(my_seat) do
+    # Engine's counter-clockwise order is +1, +2. To display correctly:
+    # seat+1 goes on the RIGHT (next counter-clockwise), seat+2 on the LEFT.
     %{
-      left: rem(my_seat + 1, 3),
-      right: rem(my_seat + 2, 3),
+      right: rem(my_seat + 1, 3),
+      left: rem(my_seat + 2, 3),
       bottom: my_seat
     }
   end
@@ -256,16 +330,30 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   defp show_talon?(view) do
-    view.phase in [:bid, :discard, :declare_game] or
-      (view.talon != nil and view.phase not in [:trick_play, :scoring, :hand_over])
+    view.phase == :bid or (view.phase == :discard and view.talon != nil)
+  end
+
+  # In Sans/Betl, when it's a defender's turn, the declarer picks their card
+  defp defender_playable(view, defender_seat) do
+    if view.current_player == defender_seat and
+         view.is_my_turn and
+         view.current_player != view.my_seat and
+         map_size(view.defender_hands) > 0 do
+      view.legal_actions
+      |> Enum.filter(&match?({:play, _}, &1))
+      |> Enum.map(fn {:play, card} -> card end)
+      |> MapSet.new()
+    else
+      nil
+    end
   end
 
   defp phase_label(:bid), do: "Bidding"
   defp phase_label(:discard), do: "Discard"
   defp phase_label(:declare_game), do: "Declare"
   defp phase_label(:defense), do: "Defense"
+  defp phase_label(:kontra), do: "Kontra"
   defp phase_label(:trick_play), do: "Trick Play"
-  defp phase_label(:scoring), do: "Scoring"
   defp phase_label(:hand_over), do: "Hand Over"
   defp phase_label(_), do: ""
 end

@@ -52,7 +52,7 @@ defmodule PreferansWebWeb.CardComponentTest do
         click_value: nil
       )
 
-    assert html =~ "w-[50px]"
+    assert html =~ "w-[60px]"
     assert html =~ "K"
     assert html =~ "♠"
   end
