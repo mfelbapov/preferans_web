@@ -35,3 +35,6 @@ preferans_web-*.tar
 npm-debug.log
 /assets/node_modules/
 
+# Neural network model files (large binaries, not tracked in git).
+/priv/models/*.pt
+

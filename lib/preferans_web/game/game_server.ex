@@ -1,12 +1,15 @@
 defmodule PreferansWeb.Game.GameServer do
   @moduledoc """
   GenServer managing one active Preferans game.
-  Uses MockEngine now, swappable to C++ engine later.
+  Communicates with the C++ preferans_server via Erlang Port.
+  AI is handled by the C++ engine — no scheduling needed here.
   """
 
   use GenServer
 
-  alias PreferansWeb.Game.{Cards, MockEngine}
+  require Logger
+
+  alias PreferansWeb.Engine.{CppEngine, CppTranslator}
   alias Phoenix.PubSub
 
   @pubsub PreferansWeb.PubSub
@@ -30,14 +33,14 @@ defmodule PreferansWeb.Game.GameServer do
     :exit, _ -> {:error, :not_found}
   end
 
-  def continue(game_id) do
-    GenServer.call(via(game_id), :continue)
+  def deal_next_hand(game_id) do
+    GenServer.call(via(game_id), :deal_next_hand)
   catch
     :exit, _ -> {:error, :not_found}
   end
 
-  def deal_next_hand(game_id) do
-    GenServer.call(via(game_id), :deal_next_hand)
+  def get_debug_state(game_id, seat) do
+    GenServer.call(via(game_id), {:get_debug_state, seat})
   catch
     :exit, _ -> {:error, :not_found}
   end
@@ -63,83 +66,92 @@ defmodule PreferansWeb.Game.GameServer do
 
   @impl true
   def init(init_arg) do
-    engine_state =
-      MockEngine.new_hand(
-        init_arg[:current_dealer] || 0,
-        init_arg[:starting_bule] || [100, 100, 100],
-        init_arg[:refe_counts] || [0, 0, 0],
-        init_arg[:max_refes] || 2
-      )
+    binary_path =
+      Application.get_env(:preferans_web, :cpp_engine_path, "./priv/bin/preferans_server")
 
-    state = %{
-      game_id: init_arg.game_id,
-      players: init_arg.players,
-      engine_state: engine_state,
-      match_bule: init_arg[:starting_bule] || [100, 100, 100],
-      match_refe_counts: init_arg[:refe_counts] || [0, 0, 0],
-      match_supe_ledger: %{},
-      hands_played: 0,
-      current_dealer: init_arg[:current_dealer] || 0,
-      match_id: init_arg[:match_id] || init_arg.game_id,
+    model_dir = Application.get_env(:preferans_web, :cpp_model_dir)
+
+    port = CppEngine.open_port(binary_path, model_dir: model_dir)
+
+    players_config =
+      Enum.map(init_arg.players, fn p ->
+        %{type: if(p.is_ai, do: "ai", else: "human")}
+      end)
+
+    new_game_opts = %{
+      players: players_config,
+      dealer: init_arg[:current_dealer] || 0,
+      starting_bule: init_arg[:starting_bule] || [100, 100, 100],
+      refes: init_arg[:refe_counts] || [0, 0, 0],
       max_refes: init_arg[:max_refes] || 2
     }
 
-    # Schedule AI turn if first player is AI
-    state = maybe_schedule_ai_turn(state)
+    new_game_opts =
+      if init_arg[:seed], do: Map.put(new_game_opts, :seed, init_arg[:seed]), else: new_game_opts
 
-    {:ok, state}
+    response = CppEngine.new_game(port, new_game_opts)
+
+    case response do
+      %{"status" => "ok", "state" => cpp_state, "events" => events} ->
+        parsed_events = CppTranslator.parse_events(events)
+
+        state = %{
+          game_id: init_arg.game_id,
+          players: init_arg.players,
+          port: port,
+          cpp_state: cpp_state,
+          bid_history: CppTranslator.extract_bid_history(parsed_events),
+          defense_responses: CppTranslator.extract_defense_responses(parsed_events),
+          defenders: CppTranslator.extract_defenders(parsed_events),
+          all_events: parsed_events,
+          match_bule: init_arg[:starting_bule] || [100, 100, 100],
+          match_refe_counts: init_arg[:refe_counts] || [0, 0, 0],
+          match_supe_ledger: %{},
+          hands_played: 0,
+          current_dealer: init_arg[:current_dealer] || 0,
+          match_id: init_arg[:match_id] || init_arg.game_id,
+          max_refes: init_arg[:max_refes] || 2
+        }
+
+        {:ok, state}
+
+      %{"status" => "error", "message" => msg} ->
+        Logger.error("GameServer: C++ engine new_game failed: #{msg}")
+        {:stop, {:engine_error, msg}}
+    end
   end
 
   @impl true
   def handle_call({:get_player_view, seat}, _from, state) do
-    view = MockEngine.get_player_view(state.engine_state, seat)
-
-    display_names =
-      for p <- state.players, into: %{} do
-        {p.seat, p.display_name}
-      end
-
-    enriched_players =
-      Enum.map(state.players, fn p ->
-        engine_player = Enum.find(view.players, &(&1.seat == p.seat)) || %{}
-        Map.merge(p, engine_player)
-      end)
-
-    view =
-      Map.merge(view, %{
-        display_names: display_names,
-        players: enriched_players,
-        hands_played: state.hands_played,
-        match_bule: state.match_bule,
-        match_refe_counts: state.match_refe_counts,
-        match_supe_ledger: state.match_supe_ledger
-      })
-
+    view = build_view(state, seat)
     {:reply, {:ok, view}, state}
   end
 
   @impl true
-  def handle_call(:continue, _from, state) do
-    if state.engine_state.phase == :trick_result do
-      case MockEngine.apply_action(state.engine_state, :next_trick) do
-        {:ok, new_engine_state} ->
-          state = %{state | engine_state: new_engine_state}
-          broadcast(state.game_id, {:game_state_updated, state.game_id})
-          state = handle_phase_transitions(state)
-          state = maybe_schedule_ai_turn(state)
-          {:reply, :ok, state}
+  def handle_call({:get_debug_state, seat}, _from, state) do
+    debug = %{
+      seat: seat,
+      cpp_state: state.cpp_state,
+      all_events: state.all_events,
+      bid_history: state.bid_history,
+      defense_responses: state.defense_responses,
+      defenders: state.defenders,
+      match_bule: state.match_bule,
+      match_refe_counts: state.match_refe_counts,
+      match_supe_ledger: state.match_supe_ledger,
+      hands_played: state.hands_played,
+      current_dealer: state.current_dealer,
+      max_refes: state.max_refes,
+      players: Enum.map(state.players, &Map.take(&1, [:seat, :display_name, :is_ai]))
+    }
 
-        {:error, reason} ->
-          {:reply, {:error, reason}, state}
-      end
-    else
-      {:reply, {:error, :not_in_trick_result}, state}
-    end
+    {:reply, {:ok, debug}, state}
   end
 
   @impl true
   def handle_call({:submit_action, seat, action}, _from, state) do
     player = Enum.find(state.players, &(&1.seat == seat))
+    current = state.cpp_state["current_player"]
 
     cond do
       player == nil ->
@@ -148,128 +160,219 @@ defmodule PreferansWeb.Game.GameServer do
       player.is_ai ->
         {:reply, {:error, :ai_player}, state}
 
-      state.engine_state.current_player != seat ->
+      current != seat and not declarer_controls_defender?(state, seat) ->
         {:reply, {:error, :not_your_turn}, state}
 
       true ->
-        case MockEngine.apply_action(state.engine_state, action) do
-          {:ok, new_engine_state} ->
-            state = %{state | engine_state: new_engine_state}
+        cpp_action = CppTranslator.action_to_cpp(action)
+        response = CppEngine.submit_action(state.port, cpp_action)
+
+        case response do
+          %{"status" => "ok", "state" => new_cpp_state, "events" => events} ->
+            parsed_events = CppTranslator.parse_events(events)
+            state = process_response(state, new_cpp_state, parsed_events)
+
             broadcast(state.game_id, {:action_played, state.game_id, seat, action})
             broadcast(state.game_id, {:game_state_updated, state.game_id})
 
-            state = handle_phase_transitions(state)
-            state = maybe_schedule_ai_turn(state)
+            state = maybe_handle_hand_over(state)
 
             {:reply, :ok, state}
 
-          {:error, reason} ->
-            {:reply, {:error, reason}, state}
+          %{"status" => "error", "message" => msg} ->
+            {:reply, {:error, msg}, state}
         end
     end
   end
 
   @impl true
   def handle_call(:deal_next_hand, _from, state) do
-    if state.engine_state.phase == :hand_over do
+    if state.cpp_state["phase"] == "hand_over" do
+      # Dealer rotates counter-clockwise: (dealer + 1) % 3, matching engine convention
       new_dealer = rem(state.current_dealer + 1, 3)
 
-      engine_state =
-        MockEngine.new_hand(
-          new_dealer,
-          state.match_bule,
-          state.match_refe_counts,
-          state.max_refes
-        )
+      players_config =
+        Enum.map(state.players, fn p ->
+          %{type: if(p.is_ai, do: "ai", else: "human")}
+        end)
 
-      state = %{state | engine_state: engine_state, current_dealer: new_dealer}
-      broadcast(state.game_id, {:new_hand_starting, state.game_id})
-      broadcast(state.game_id, {:game_state_updated, state.game_id})
+      response =
+        CppEngine.new_game(state.port, %{
+          players: players_config,
+          dealer: new_dealer,
+          starting_bule: state.match_bule,
+          refes: state.match_refe_counts,
+          max_refes: state.max_refes
+        })
 
-      state = maybe_schedule_ai_turn(state)
+      case response do
+        %{"status" => "ok", "state" => new_cpp_state, "events" => events} ->
+          parsed_events = CppTranslator.parse_events(events)
 
-      {:reply, :ok, state}
+          state = %{
+            state
+            | cpp_state: new_cpp_state,
+              current_dealer: new_dealer,
+              bid_history: CppTranslator.extract_bid_history(parsed_events),
+              defense_responses: %{},
+              defenders: [],
+              all_events: parsed_events
+          }
+
+          broadcast(state.game_id, {:new_hand_starting, state.game_id})
+          broadcast(state.game_id, {:game_state_updated, state.game_id})
+
+          {:reply, :ok, state}
+
+        %{"status" => "error", "message" => msg} ->
+          {:reply, {:error, msg}, state}
+      end
     else
       {:reply, {:error, :not_in_hand_over}, state}
     end
   end
 
   @impl true
-  def handle_info({:ai_turn, seat}, state) do
-    # Verify it's still this AI's turn
-    if state.engine_state.current_player == seat and
-         state.engine_state.phase not in [:hand_over, :scoring] do
-      action = pick_ai_action(state)
+  def handle_info({port, {:exit_status, code}}, %{port: port} = state) do
+    Logger.error("GameServer: C++ engine exited with status #{code}")
+    {:stop, {:engine_crashed, code}, state}
+  end
 
-      case MockEngine.apply_action(state.engine_state, action) do
-        {:ok, new_engine_state} ->
-          state = %{state | engine_state: new_engine_state}
-          broadcast(state.game_id, {:action_played, state.game_id, seat, action})
-          broadcast(state.game_id, {:game_state_updated, state.game_id})
+  @impl true
+  def handle_info({port, {:data, _data}}, %{port: port} = state) do
+    # Unexpected data from port (e.g., stderr) — ignore
+    {:noreply, state}
+  end
 
-          state = handle_phase_transitions(state)
-          state = maybe_schedule_ai_turn(state)
-
-          {:noreply, state}
-
-        {:error, _reason} ->
-          {:noreply, state}
-      end
-    else
-      {:noreply, state}
+  @impl true
+  def terminate(_reason, state) do
+    if state[:port] do
+      CppEngine.close(state.port)
     end
   end
 
-  ## Internal
+  ## Internal helpers
 
-  defp handle_phase_transitions(state) do
-    cond do
-      state.engine_state.phase == :scoring ->
-        # Auto-transition scoring → hand_over
-        state = apply_scoring(state)
+  # In Sans/Betl, the human declarer controls defenders' cards during trick play
+  defp declarer_controls_defender?(state, seat) do
+    cpp = state.cpp_state
+    phase = cpp["phase"]
+    game = cpp["declared_game"]
+    declarer = cpp["declarer"]
+
+    phase == "trick_play" and
+      game in ["sans", "betl"] and
+      declarer == seat and
+      cpp["current_player"] != seat
+  end
+
+  defp build_view(state, seat) do
+    display_names =
+      for p <- state.players, into: %{} do
+        {p.seat, p.display_name}
+      end
+
+    extras = %{
+      bid_history: state.bid_history,
+      defense_responses: state.defense_responses,
+      defenders: state.defenders
+    }
+
+    view = CppTranslator.translate_state(state.cpp_state, seat, extras)
+
+    enriched_players =
+      Enum.map(state.players, fn p ->
+        engine_player = Enum.find(view.players, &(&1.seat == p.seat)) || %{}
+        Map.merge(p, engine_player)
+      end)
+
+    Map.merge(view, %{
+      display_names: display_names,
+      players: enriched_players,
+      hands_played: state.hands_played,
+      match_bule: state.match_bule,
+      match_refe_counts: state.match_refe_counts,
+      match_supe_ledger: state.match_supe_ledger
+    })
+  end
+
+  defp process_response(state, new_cpp_state, parsed_events) do
+    new_bid_history =
+      state.bid_history ++ CppTranslator.extract_bid_history(parsed_events)
+
+    new_defense_responses =
+      Map.merge(
+        state.defense_responses,
+        CppTranslator.extract_defense_responses(parsed_events)
+      )
+
+    new_defenders =
+      Enum.uniq(state.defenders ++ CppTranslator.extract_defenders(parsed_events))
+
+    %{
+      state
+      | cpp_state: new_cpp_state,
+        bid_history: new_bid_history,
+        defense_responses: new_defense_responses,
+        defenders: new_defenders,
+        all_events: state.all_events ++ parsed_events
+    }
+  end
+
+  defp maybe_handle_hand_over(state) do
+    if state.cpp_state["phase"] == "hand_over" do
+      result = state.cpp_state["result"]
+
+      if result do
+        scoring_result = CppTranslator.translate_result(result)
+        state = apply_scoring(state, scoring_result)
 
         broadcast(
           state.game_id,
-          {:hand_completed, state.game_id, state.engine_state.scoring_result}
+          {:hand_completed, state.game_id, scoring_result}
         )
 
         if match_over?(state) do
           broadcast(state.game_id, {:match_ended, state.game_id, final_scores(state)})
-          state
-        else
-          state
         end
 
-      true ->
         state
+      else
+        state
+      end
+    else
+      state
     end
   end
 
-  defp apply_scoring(state) do
-    result = state.engine_state.scoring_result
-
+  defp apply_scoring(state, scoring_result) do
     new_bule =
-      Enum.zip(state.match_bule, result.bule_changes)
+      Enum.zip(state.match_bule, scoring_result.bule_changes)
       |> Enum.map(fn {b, c} -> b + c end)
 
     new_refe =
-      if result.all_passed do
-        state.engine_state.refe_counts
-      else
-        state.match_refe_counts
+      cond do
+        scoring_result.all_passed and scoring_result.refe_recorded ->
+          # All passed — increment refe for each player
+          Enum.map(state.match_refe_counts, &(&1 + 1))
+
+        scoring_result.refe_consumed ->
+          # A refe was consumed by the declarer
+          state.match_refe_counts
+
+        true ->
+          state.match_refe_counts
       end
 
     new_supe =
-      Enum.reduce(result.supe_changes, state.match_supe_ledger, fn {key, amount}, ledger ->
+      Enum.reduce(scoring_result.supe_changes, state.match_supe_ledger, fn {key, amount},
+                                                                           ledger ->
         Map.update(ledger, key, amount, &(&1 + amount))
       end)
 
-    engine_state = %{state.engine_state | phase: :hand_over}
-
     %{
       state
-      | engine_state: engine_state,
-        match_bule: new_bule,
+      | match_bule: new_bule,
         match_refe_counts: new_refe,
         match_supe_ledger: new_supe,
         hands_played: state.hands_played + 1
@@ -287,72 +390,6 @@ defmodule PreferansWeb.Game.GameServer do
       supe_ledger: state.match_supe_ledger,
       hands_played: state.hands_played
     }
-  end
-
-  defp maybe_schedule_ai_turn(state) do
-    seat = state.engine_state.current_player
-    player = Enum.find(state.players, &(&1.seat == seat))
-
-    if player && player.is_ai &&
-         state.engine_state.phase not in [:hand_over, :scoring, :trick_result] do
-      Process.send_after(self(), {:ai_turn, seat}, ai_delay(state))
-    end
-
-    state
-  end
-
-  defp ai_delay(state) do
-    case state.engine_state.phase do
-      :bid -> Enum.random(600..1200)
-      :defense -> Enum.random(800..1500)
-      :trick_play -> Enum.random(500..1000)
-      _ -> 500
-    end
-  end
-
-  defp pick_ai_action(state) do
-    legal = MockEngine.get_legal_actions(state.engine_state)
-
-    case state.engine_state.phase do
-      :bid ->
-        # 70% pass, 20% bid lowest, 10% bid one higher
-        r = :rand.uniform(100)
-
-        cond do
-          r <= 70 ->
-            :dalje
-
-          r <= 90 ->
-            Enum.find(legal, :dalje, &match?({:bid, _}, &1))
-
-          # Try moje first, then highest bid
-          true ->
-            if :moje in legal do
-              :moje
-            else
-              Enum.reverse(legal) |> Enum.find(:dalje, &match?({:bid, _}, &1))
-            end
-        end
-
-      :defense ->
-        if :rand.uniform(100) <= 60, do: :dodjem, else: :ne_dodjem
-
-      :trick_play ->
-        # Play lowest legal card
-        legal
-        |> Enum.sort_by(fn {:play, {_s, r}} -> Cards.rank_value(r) end)
-        |> hd()
-
-      :discard ->
-        Enum.random(legal)
-
-      :declare_game ->
-        # Pick first legal declaration (lowest value game)
-        hd(legal)
-
-      _ ->
-        hd(legal)
-    end
   end
 
   defp broadcast(game_id, message) do

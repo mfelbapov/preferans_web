@@ -16,7 +16,10 @@ defmodule PreferansWebWeb.GameComponents do
   attr :tricks, :integer, default: 0
   attr :is_current, :boolean, default: false
   attr :is_declarer, :boolean, default: false
+  attr :is_dealer, :boolean, default: false
   attr :position, :atom, required: true, doc: ":left or :right"
+  attr :open_hand, :list, default: nil, doc: "Face-up cards (Sans/Betl defender)"
+  attr :playable_cards, :any, default: nil, doc: "MapSet of cards this defender can play"
 
   def opponent_area(assigns) do
     ~H"""
@@ -32,9 +35,29 @@ defmodule PreferansWebWeb.GameComponents do
           !@is_current && "bg-transparent"
         ]} />
         <span class="font-medium">{@name}</span>
-        <span :if={@is_declarer} class="text-amber-300 text-xs">(D)</span>
+        <span :if={@is_dealer} class="text-green-400/70 text-2xl">{gettext("Ⓓ")}</span>
+        <span
+          :if={@is_declarer}
+          class="bg-red-600 text-white text-xs font-bold uppercase px-1.5 py-0.5 rounded"
+        >
+          {gettext("IGRAC")}
+        </span>
       </div>
-      <div class="flex gap-0.5">
+      <div :if={@open_hand} class="flex flex-wrap gap-0.5 justify-center">
+        <.card
+          :for={c <- @open_hand}
+          id={"defender-#{card_dom_id(c)}"}
+          card={c}
+          size={:small}
+          clickable={@playable_cards && MapSet.member?(@playable_cards, c)}
+          dimmed={@playable_cards && not MapSet.member?(@playable_cards, c)}
+          click_event={if @playable_cards && MapSet.member?(@playable_cards, c), do: "play_card"}
+          click_value={
+            if @playable_cards && MapSet.member?(@playable_cards, c), do: Cards.card_to_key(c)
+          }
+        />
+      </div>
+      <div :if={!@open_hand} class="flex gap-0.5">
         <.card :for={_ <- 1..min(@card_count, 10)} face={:down} size={:small} />
       </div>
       <div class="text-xs text-green-200/70">
@@ -120,6 +143,30 @@ defmodule PreferansWebWeb.GameComponents do
         >
           {gettext("Moje")}
         </button>
+        <button
+          :if={:igra in @view.legal_actions}
+          phx-click="bid_igra"
+          phx-value-action="igra"
+          class="btn-game btn-game-accent"
+        >
+          {gettext("Igra")}
+        </button>
+        <button
+          :if={:igra_betl in @view.legal_actions}
+          phx-click="bid_igra"
+          phx-value-action="igra_betl"
+          class="btn-game btn-game-accent"
+        >
+          {gettext("Igra Betl")}
+        </button>
+        <button
+          :if={:igra_sans in @view.legal_actions}
+          phx-click="bid_igra"
+          phx-value-action="igra_sans"
+          class="btn-game btn-game-accent"
+        >
+          {gettext("Igra Sans")}
+        </button>
       </div>
     </div>
     """
@@ -145,6 +192,10 @@ defmodule PreferansWebWeb.GameComponents do
   defp format_bid_action(:dalje), do: gettext("Pass")
   defp format_bid_action({:bid, v}), do: bid_label(v)
   defp format_bid_action({:moje, v}), do: "#{gettext("Moje")} (#{bid_label(v)})"
+  defp format_bid_action(:moje), do: gettext("Moje")
+  defp format_bid_action(:igra), do: gettext("Igra")
+  defp format_bid_action(:igra_betl), do: gettext("Igra Betl")
+  defp format_bid_action(:igra_sans), do: gettext("Igra Sans")
 
   ## Discard phase
 
@@ -246,11 +297,29 @@ defmodule PreferansWebWeb.GameComponents do
       </div>
 
       <div :if={@view.is_my_turn} class="flex gap-3">
-        <button phx-click="defense" phx-value-action="dodjem" class="btn-game btn-game-primary">
-          {gettext("I defend")}
+        <button
+          :if={:dodjem in @view.legal_actions}
+          phx-click="defense"
+          phx-value-action="dodjem"
+          class="btn-game btn-game-primary"
+        >
+          {if :poziv in @view.legal_actions, do: gettext("Play alone"), else: gettext("I defend")}
         </button>
-        <button phx-click="defense" phx-value-action="ne_dodjem" class="btn-game btn-game-secondary">
+        <button
+          :if={:ne_dodjem in @view.legal_actions}
+          phx-click="defense"
+          phx-value-action="ne_dodjem"
+          class="btn-game btn-game-secondary"
+        >
           {gettext("I pass")}
+        </button>
+        <button
+          :if={:poziv in @view.legal_actions}
+          phx-click="defense"
+          phx-value-action="poziv"
+          class="btn-game btn-game-accent"
+        >
+          {gettext("Call partner (Poziv)")}
         </button>
       </div>
       <div
@@ -265,24 +334,108 @@ defmodule PreferansWebWeb.GameComponents do
 
   defp format_defense(:dodjem), do: gettext("I defend")
   defp format_defense(:ne_dodjem), do: gettext("I pass")
+  defp format_defense(:poziv), do: gettext("Poziv (called partner)")
+
+  ## Kontra phase
+
+  attr :view, :map, required: true
+
+  def kontra_phase(assigns) do
+    ~H"""
+    <div class="flex flex-col items-center gap-4">
+      <div class="bg-green-900/50 rounded-lg p-3 text-center">
+        <p class="text-green-100 text-sm">
+          {gettext("%{name} plays %{game}",
+            name: display_name(@view, @view.declarer),
+            game: "#{Cards.game_name(@view.game_type)} #{game_suit_symbol(@view.game_type)}"
+          )}
+        </p>
+        <p :if={@view.kontra_level > 0} class="text-amber-300 text-sm font-bold mt-1">
+          {kontra_level_label(@view.kontra_level)}
+        </p>
+      </div>
+
+      <div :if={@view.is_my_turn} class="flex gap-3">
+        <button
+          :for={action <- kontra_actions(@view.legal_actions)}
+          phx-click="kontra"
+          phx-value-action={action}
+          class={kontra_button_class(action)}
+        >
+          {kontra_action_label(action)}
+        </button>
+      </div>
+      <div :if={!@view.is_my_turn} class="text-green-200/60 text-sm">
+        {gettext("Waiting for %{name}...", name: display_name(@view, @view.current_player))}
+      </div>
+    </div>
+    """
+  end
+
+  defp kontra_actions(legal_actions) do
+    Enum.map(legal_actions, fn
+      :kontra -> "kontra"
+      :rekontra -> "rekontra"
+      :subkontra -> "subkontra"
+      :mortkontra -> "mortkontra"
+      :moze -> "moze"
+      _ -> nil
+    end)
+    |> Enum.filter(& &1)
+  end
+
+  defp kontra_action_label("kontra"), do: gettext("Kontra!")
+  defp kontra_action_label("rekontra"), do: gettext("Rekontra!")
+  defp kontra_action_label("subkontra"), do: gettext("Subkontra!")
+  defp kontra_action_label("mortkontra"), do: gettext("Mortkontra!")
+  defp kontra_action_label("moze"), do: gettext("Accept")
+
+  defp kontra_button_class("moze"), do: "btn-game btn-game-secondary"
+  defp kontra_button_class(_), do: "btn-game btn-game-accent"
+
+  defp kontra_level_label(1), do: gettext("Kontra")
+  defp kontra_level_label(2), do: gettext("Rekontra")
+  defp kontra_level_label(3), do: gettext("Subkontra")
+  defp kontra_level_label(4), do: gettext("Mortkontra")
+  defp kontra_level_label(_), do: ""
 
   ## Game info bar (shown during trick play and trick result)
 
   attr :view, :map, required: true
 
   def game_info_bar(assigns) do
+    caller = find_caller(assigns.view.defense_responses)
+    assigns = assign(assigns, :caller, caller)
+
     ~H"""
     <div
       :if={@view.game_type}
-      class="flex items-center gap-2 text-xs text-green-200/70 bg-green-900/40 rounded px-3 py-1"
+      class="flex flex-col items-center gap-1"
     >
-      <span class="font-semibold text-green-100">
-        {Cards.game_name(@view.game_type)} {game_suit_symbol(@view.game_type)}
-      </span>
-      <span>—</span>
-      <span>{display_name(@view, @view.declarer)} {gettext("declares")}</span>
+      <div class="flex items-center gap-2 text-xs text-green-200/70 bg-green-900/40 rounded px-3 py-1">
+        <span class="font-semibold text-green-100">
+          {Cards.game_name(@view.game_type)} {game_suit_symbol(@view.game_type)}
+        </span>
+        <span>—</span>
+        <span>{display_name(@view, @view.declarer)} {gettext("declares")}</span>
+      </div>
+      <div
+        :if={@caller}
+        class="text-xs text-amber-300/80 bg-amber-900/30 rounded px-3 py-1"
+      >
+        {gettext("%{name} called you back (Poziv)",
+          name: display_name(@view, @caller)
+        )}
+      </div>
     </div>
     """
+  end
+
+  defp find_caller(defense_responses) do
+    Enum.find_value(defense_responses, fn
+      {player, :poziv} -> player
+      _ -> nil
+    end)
   end
 
   ## Trick play phase
@@ -514,6 +667,127 @@ defmodule PreferansWebWeb.GameComponents do
       />
     </div>
     """
+  end
+
+  ## Debug panel
+
+  attr :debug_state, :map, required: true
+
+  def debug_panel(assigns) do
+    text = format_debug_text(assigns.debug_state)
+    assigns = assign(assigns, :text, text)
+
+    ~H"""
+    <div class="w-96 bg-gray-900 border-l border-gray-700 p-3 flex flex-col gap-2 overflow-y-auto">
+      <div class="flex justify-between items-center border-b border-gray-700 pb-2">
+        <h3 class="text-gray-100 font-bold text-sm">Debug State</h3>
+        <button
+          id="copy-debug-btn"
+          phx-hook="CopyToClipboard"
+          data-target="debug-pre"
+          class="text-xs bg-gray-700 hover:bg-gray-600 text-gray-200 px-2 py-1 rounded"
+        >
+          Copy All
+        </button>
+      </div>
+      <pre id="debug-pre" class="text-xs text-gray-300 font-mono whitespace-pre-wrap break-words">{@text}</pre>
+    </div>
+    """
+  end
+
+  defp format_debug_text(d) do
+    cpp = d.cpp_state
+    trick_play = cpp["trick_play"]
+
+    sections = [
+      "=== GAME DEBUG STATE ===",
+      "Phase: #{cpp["phase"]}",
+      "Current Player: #{cpp["current_player"]}",
+      "Dealer: #{d.current_dealer}",
+      "Declarer: #{cpp["declarer"]}",
+      "Game Type: #{cpp["declared_game"]}",
+      "Game Value: #{cpp["game_value"]}",
+      "Is Igra: #{cpp["is_igra"]}",
+      "Kontra Level: #{cpp["kontra_level"]}",
+      "Kontra Giver: #{cpp["kontra_giver"]}",
+      "",
+      "=== PLAYERS ===",
+      format_players(d.players),
+      "",
+      "=== MY SEAT: #{d.seat} ===",
+      "",
+      "=== HAND ===",
+      inspect(cpp["hand"]),
+      "",
+      "=== TALON ===",
+      inspect(cpp["talon"]),
+      "",
+      "=== LEGAL ACTIONS ===",
+      inspect(cpp["legal_actions"]),
+      "",
+      "=== BID HISTORY ===",
+      format_bid_history(d.bid_history),
+      "",
+      "=== DEFENSE RESPONSES ===",
+      format_defense_responses(d.defense_responses),
+      "Defenders: #{inspect(d.defenders)}",
+      "",
+      "=== TRICK STATE ===",
+      format_trick_state(trick_play),
+      "",
+      "=== ALL EVENTS ===",
+      format_events(d.all_events),
+      "",
+      "=== MATCH STATE ===",
+      "Bule: #{inspect(d.match_bule)}",
+      "Refes: #{inspect(d.match_refe_counts)}",
+      "Supe Ledger: #{inspect(d.match_supe_ledger)}",
+      "Hands Played: #{d.hands_played}",
+      "Max Refes: #{d.max_refes}",
+      "",
+      "=== SCORING RESULT ===",
+      inspect(cpp["result"]),
+      "",
+      "=== RAW CPP STATE ===",
+      inspect(cpp, pretty: true, limit: :infinity)
+    ]
+
+    Enum.join(sections, "\n")
+  end
+
+  defp format_players(players) do
+    Enum.map_join(players, "\n", fn p ->
+      "Seat #{p.seat}: #{p.display_name}#{if p.is_ai, do: " (AI)", else: " (Human)"}"
+    end)
+  end
+
+  defp format_bid_history(history) do
+    Enum.map_join(history, "\n", fn entry ->
+      "Seat #{entry.player}: #{inspect(entry.action)}"
+    end)
+  end
+
+  defp format_defense_responses(responses) do
+    Enum.map_join(responses, "\n", fn {seat, action} ->
+      "Seat #{seat}: #{inspect(action)}"
+    end)
+  end
+
+  defp format_trick_state(nil), do: "No trick play state"
+
+  defp format_trick_state(tp) do
+    [
+      "Trick Number: #{tp["trick_number"]}",
+      "Tricks Won: #{inspect(tp["tricks_won"])}",
+      "Current Trick: #{inspect(tp["current_trick"])}"
+    ]
+    |> Enum.join("\n")
+  end
+
+  defp format_events(events) do
+    Enum.map_join(events, "\n", fn event ->
+      inspect(event)
+    end)
   end
 
   ## Helpers

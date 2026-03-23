@@ -9,7 +9,8 @@ defmodule PreferansWebWeb.GameLiveTest do
   setup :register_and_log_in_user
 
   defp start_game(%{user: user}) do
-    {:ok, game_id} = Game.start_solo_game(user.id)
+    # Use seed 42: both AIs pass in bidding, giving human the chance to bid
+    {:ok, game_id} = Game.start_solo_game(user.id, seed: 42)
     %{game_id: game_id}
   end
 
@@ -119,38 +120,61 @@ defmodule PreferansWebWeb.GameLiveTest do
   ## Helpers
 
   defp advance_to_discard(game_id) do
-    alias PreferansWeb.Game.MockEngine
+    # With the C++ engine, we need to actually play through bidding.
+    # Wait for it to be seat 0's turn, then bid to reach discard.
+    wait_for_turn(game_id, 0, 50)
 
-    # Directly set the engine state to discard phase using :sys.replace_state.
-    # This avoids flaky AI timing entirely.
-    pid = GenServer.whereis({:via, Registry, {PreferansWeb.GameRegistry, game_id}})
+    {:ok, view} = GameServer.get_player_view(game_id, 0)
 
-    :sys.replace_state(pid, fn state ->
-      # Create a fresh hand where seat 0 is the declarer in discard phase
-      engine = MockEngine.new_hand(0, [100, 100, 100], [0, 0, 0], 2)
+    case view.phase do
+      :bid ->
+        # Find the lowest available bid and use it
+        bid_action =
+          Enum.find(view.legal_actions, fn
+            {:bid, _} -> true
+            _ -> false
+          end)
 
-      # Manually advance to discard: set declarer, pick up talon, transition
-      declarer = 0
-      declarer_hand = Enum.at(engine.hands, declarer) ++ engine.talon
+        if bid_action do
+          :ok = GameServer.submit_action(game_id, 0, bid_action)
+          # Wait for discard phase (AI may auto-pass, leading to discard)
+          wait_for_phase_server(game_id, :discard, 50)
+        else
+          # No bid available, just pass — game may go to hand_over (all passed)
+          :ok = GameServer.submit_action(game_id, 0, :dalje)
+          wait_for_phase_server(game_id, :discard, 50)
+        end
 
-      hands =
-        List.replace_at(engine.hands, declarer, PreferansWeb.Game.Cards.sort_hand(declarer_hand))
-
-      engine = %{
-        engine
-        | phase: :discard,
-          declarer: declarer,
-          highest_bid: 2,
-          highest_bidder: declarer,
-          talon_revealed: true,
-          hands: hands,
-          current_player: declarer,
-          passed_players: [1, 2]
-      }
-
-      %{state | engine_state: engine}
-    end)
+      :discard ->
+        :ok
+    end
   end
+
+  defp wait_for_turn(game_id, seat, retries) when retries > 0 do
+    {:ok, view} = GameServer.get_player_view(game_id, seat)
+
+    if view.is_my_turn do
+      :ok
+    else
+      Process.sleep(100)
+      wait_for_turn(game_id, seat, retries - 1)
+    end
+  end
+
+  defp wait_for_turn(_, _, 0), do: :timeout
+
+  defp wait_for_phase_server(game_id, phase, retries) when retries > 0 do
+    {:ok, view} = GameServer.get_player_view(game_id, 0)
+
+    if view.phase == phase do
+      :ok
+    else
+      Process.sleep(100)
+      wait_for_phase_server(game_id, phase, retries - 1)
+    end
+  end
+
+  defp wait_for_phase_server(_, _, 0), do: :timeout
 
   defp card_dom_id({suit, rank}), do: "#{suit}-#{rank}"
 
