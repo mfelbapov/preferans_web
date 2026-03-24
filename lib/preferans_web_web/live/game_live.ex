@@ -136,8 +136,10 @@ defmodule PreferansWebWeb.GameLive do
 
   @impl true
   def handle_event("next_hand", _params, socket) do
-    GameServer.deal_next_hand(socket.assigns.game_id)
-    {:noreply, socket}
+    case GameServer.deal_next_hand(socket.assigns.game_id) do
+      :ok -> {:noreply, socket}
+      {:error, reason} -> {:noreply, put_flash(socket, :error, "Deal failed: #{reason}")}
+    end
   end
 
   @impl true
@@ -209,8 +211,6 @@ defmodule PreferansWebWeb.GameLive do
               is_declarer={@view.declarer == @positions.left}
               is_dealer={@view.dealer == @positions.left}
               position={:left}
-              open_hand={Map.get(@view.defender_hands, @positions.left)}
-              playable_cards={defender_playable(@view, @positions.left)}
             />
             <.opponent_area
               name={display_name(@view, @positions.right)}
@@ -220,8 +220,6 @@ defmodule PreferansWebWeb.GameLive do
               is_declarer={@view.declarer == @positions.right}
               is_dealer={@view.dealer == @positions.right}
               position={:right}
-              open_hand={Map.get(@view.defender_hands, @positions.right)}
-              playable_cards={defender_playable(@view, @positions.right)}
             />
           </div>
 
@@ -331,21 +329,6 @@ defmodule PreferansWebWeb.GameLive do
 
   defp show_talon?(view) do
     view.phase == :bid or (view.phase == :discard and view.talon != nil)
-  end
-
-  # In Sans/Betl, when it's a defender's turn, the declarer picks their card
-  defp defender_playable(view, defender_seat) do
-    if view.current_player == defender_seat and
-         view.is_my_turn and
-         view.current_player != view.my_seat and
-         map_size(view.defender_hands) > 0 do
-      view.legal_actions
-      |> Enum.filter(&match?({:play, _}, &1))
-      |> Enum.map(fn {:play, card} -> card end)
-      |> MapSet.new()
-    else
-      nil
-    end
   end
 
   defp phase_label(:bid), do: "Bidding"

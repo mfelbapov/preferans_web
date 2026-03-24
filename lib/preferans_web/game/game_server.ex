@@ -92,8 +92,8 @@ defmodule PreferansWeb.Game.GameServer do
     response = CppEngine.new_game(port, new_game_opts)
 
     case response do
-      %{"status" => "ok", "state" => cpp_state, "events" => events} ->
-        parsed_events = CppTranslator.parse_events(events)
+      %{"status" => "ok", "state" => cpp_state} = resp ->
+        parsed_events = CppTranslator.parse_events(resp["events"])
 
         state = %{
           game_id: init_arg.game_id,
@@ -160,7 +160,7 @@ defmodule PreferansWeb.Game.GameServer do
       player.is_ai ->
         {:reply, {:error, :ai_player}, state}
 
-      current != seat and not declarer_controls_defender?(state, seat) ->
+      current != seat ->
         {:reply, {:error, :not_your_turn}, state}
 
       true ->
@@ -168,8 +168,8 @@ defmodule PreferansWeb.Game.GameServer do
         response = CppEngine.submit_action(state.port, cpp_action)
 
         case response do
-          %{"status" => "ok", "state" => new_cpp_state, "events" => events} ->
-            parsed_events = CppTranslator.parse_events(events)
+          %{"status" => "ok", "state" => new_cpp_state} = resp ->
+            parsed_events = CppTranslator.parse_events(resp["events"])
             state = process_response(state, new_cpp_state, parsed_events)
 
             broadcast(state.game_id, {:action_played, state.game_id, seat, action})
@@ -206,8 +206,8 @@ defmodule PreferansWeb.Game.GameServer do
         })
 
       case response do
-        %{"status" => "ok", "state" => new_cpp_state, "events" => events} ->
-          parsed_events = CppTranslator.parse_events(events)
+        %{"status" => "ok", "state" => new_cpp_state} = resp ->
+          parsed_events = CppTranslator.parse_events(resp["events"])
 
           state = %{
             state
@@ -252,19 +252,6 @@ defmodule PreferansWeb.Game.GameServer do
   end
 
   ## Internal helpers
-
-  # In Sans/Betl, the human declarer controls defenders' cards during trick play
-  defp declarer_controls_defender?(state, seat) do
-    cpp = state.cpp_state
-    phase = cpp["phase"]
-    game = cpp["declared_game"]
-    declarer = cpp["declarer"]
-
-    phase == "trick_play" and
-      game in ["sans", "betl"] and
-      declarer == seat and
-      cpp["current_player"] != seat
-  end
 
   defp build_view(state, seat) do
     display_names =

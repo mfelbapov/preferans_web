@@ -193,14 +193,7 @@ defmodule PreferansWeb.Engine.CppTranslator do
     current_player = cpp_state["current_player"]
     legal_actions = parse_legal_actions(cpp_state["legal_actions"])
 
-    # In Sans/Betl, declarer controls defenders — treat as "my turn" for the declarer
-    declarer_controls =
-      phase == :trick_play and
-        cpp_state["declared_game"] in ["sans", "betl"] and
-        cpp_state["declarer"] == seat and
-        current_player != seat
-
-    is_my_turn = current_player == seat or declarer_controls
+    is_my_turn = current_player == seat
 
     trick_play = cpp_state["trick_play"]
     current_trick = translate_current_trick(trick_play)
@@ -211,9 +204,6 @@ defmodule PreferansWeb.Engine.CppTranslator do
 
     game_type = parse_game_type(cpp_state["declared_game"])
 
-    # Parse defender hands when exposed (Sans/Betl)
-    defender_hands = translate_defender_hands(cpp_state["defender_hands"])
-
     %{
       phase: phase,
       my_seat: seat,
@@ -222,7 +212,6 @@ defmodule PreferansWeb.Engine.CppTranslator do
       current_player: current_player,
       is_my_turn: is_my_turn,
       legal_actions: if(is_my_turn, do: legal_actions, else: []),
-      defender_hands: defender_hands,
       dealer: cpp_state["dealer"],
       bid_history: Map.get(extras, :bid_history, []),
       highest_bid: bidding["highest_bid"] || 0,
@@ -257,16 +246,6 @@ defmodule PreferansWeb.Engine.CppTranslator do
   end
 
   ## Private helpers
-
-  defp translate_defender_hands(nil), do: %{}
-
-  defp translate_defender_hands(hands) when is_map(hands) do
-    for {seat_str, cards} <- hands, into: %{} do
-      seat = String.to_integer(seat_str)
-      parsed = Enum.map(cards, &parse_card/1) |> Cards.sort_hand()
-      {seat, parsed}
-    end
-  end
 
   defp translate_opponent_counts(nil), do: %{}
 
