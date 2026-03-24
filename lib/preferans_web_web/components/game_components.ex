@@ -18,8 +18,6 @@ defmodule PreferansWebWeb.GameComponents do
   attr :is_declarer, :boolean, default: false
   attr :is_dealer, :boolean, default: false
   attr :position, :atom, required: true, doc: ":left or :right"
-  attr :open_hand, :list, default: nil, doc: "Face-up cards (Sans/Betl defender)"
-  attr :playable_cards, :any, default: nil, doc: "MapSet of cards this defender can play"
 
   def opponent_area(assigns) do
     ~H"""
@@ -43,21 +41,7 @@ defmodule PreferansWebWeb.GameComponents do
           {gettext("IGRAC")}
         </span>
       </div>
-      <div :if={@open_hand} class="flex flex-wrap gap-0.5 justify-center">
-        <.card
-          :for={c <- @open_hand}
-          id={"defender-#{card_dom_id(c)}"}
-          card={c}
-          size={:small}
-          clickable={@playable_cards && MapSet.member?(@playable_cards, c)}
-          dimmed={@playable_cards && not MapSet.member?(@playable_cards, c)}
-          click_event={if @playable_cards && MapSet.member?(@playable_cards, c), do: "play_card"}
-          click_value={
-            if @playable_cards && MapSet.member?(@playable_cards, c), do: Cards.card_to_key(c)
-          }
-        />
-      </div>
-      <div :if={!@open_hand} class="flex gap-0.5">
+      <div class="flex gap-0.5">
         <.card :for={_ <- 1..min(@card_count, 10)} face={:down} size={:small} />
       </div>
       <div class="text-xs text-green-200/70">
@@ -173,7 +157,10 @@ defmodule PreferansWebWeb.GameComponents do
   end
 
   defp bid_buttons(legal_actions) do
-    Enum.filter(legal_actions, &match?({:bid, _}, &1))
+    case Enum.filter(legal_actions, &match?({:bid, _}, &1)) do
+      [] -> []
+      bids -> [Enum.min_by(bids, fn {:bid, v} -> v end)]
+    end
   end
 
   defp bid_label(value) do
