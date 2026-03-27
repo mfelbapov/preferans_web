@@ -280,11 +280,14 @@ defmodule PreferansWeb.Engine.CppTranslator do
 
   def translate_result(result) do
     passed_list = result["passed"] || [false, false, false]
-    all_passed = Enum.all?(passed_list)
+    everyone_passed = Enum.all?(passed_list)
     declarer = result["declarer"]
+    # All-pass = nobody bid (declarer is -1). Free pass = defenders declined (declarer is set).
+    all_passed = everyone_passed and (declarer == nil or declarer < 0)
+    free_pass = everyone_passed and declarer != nil and declarer >= 0
 
     declarer_passed =
-      if declarer && !all_passed do
+      if declarer && !everyone_passed do
         tricks = result["tricks"] || [0, 0, 0]
         declarer_tricks = Enum.at(tricks, declarer, 0)
         # Declarer "passed" (succeeded) if they got 6+ tricks (normal game)
@@ -308,7 +311,7 @@ defmodule PreferansWeb.Engine.CppTranslator do
     %{
       all_passed: all_passed,
       declarer_passed: declarer_passed,
-      free_pass: false,
+      free_pass: free_pass,
       tricks: result["tricks"] || [0, 0, 0],
       bule_changes: bule_changes,
       supe_changes: supe_changes,
