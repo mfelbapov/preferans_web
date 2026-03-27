@@ -101,6 +101,8 @@ defmodule PreferansWeb.Engine.CppTranslator do
   def action_to_cpp(:dodjem), do: %{"type" => "dodjem"}
   def action_to_cpp(:ne_dodjem), do: %{"type" => "ne_dodjem"}
   def action_to_cpp(:poziv), do: %{"type" => "poziv"}
+  def action_to_cpp(:sam), do: %{"type" => "sam"}
+  def action_to_cpp(:idemo_zajedno), do: %{"type" => "idemo_zajedno"}
   def action_to_cpp(:moze), do: %{"type" => "moze"}
   def action_to_cpp(:kontra), do: %{"type" => "kontra"}
   def action_to_cpp(:rekontra), do: %{"type" => "rekontra"}
@@ -134,6 +136,8 @@ defmodule PreferansWeb.Engine.CppTranslator do
   def parse_legal_action(%{"type" => "dodjem"}), do: :dodjem
   def parse_legal_action(%{"type" => "ne_dodjem"}), do: :ne_dodjem
   def parse_legal_action(%{"type" => "poziv"}), do: :poziv
+  def parse_legal_action(%{"type" => "sam"}), do: :sam
+  def parse_legal_action(%{"type" => "idemo_zajedno"}), do: :idemo_zajedno
   def parse_legal_action(%{"type" => "moze"}), do: :moze
   def parse_legal_action(%{"type" => "kontra"}), do: :kontra
   def parse_legal_action(%{"type" => "rekontra"}), do: :rekontra
@@ -355,7 +359,7 @@ defmodule PreferansWeb.Engine.CppTranslator do
   def extract_defense_responses(events) do
     events
     |> Enum.filter(fn %{action: action} ->
-      action in [:dodjem, :ne_dodjem, :poziv]
+      action in [:dodjem, :ne_dodjem, :poziv, :sam, :idemo_zajedno]
     end)
     |> Enum.into(%{}, fn %{player: player, action: action} ->
       {player, action}
