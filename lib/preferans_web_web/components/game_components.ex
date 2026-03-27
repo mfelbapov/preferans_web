@@ -42,7 +42,7 @@ defmodule PreferansWebWeb.GameComponents do
         </span>
       </div>
       <div class="flex gap-0.5">
-        <.card :for={_ <- 1..min(@card_count, 10)} face={:down} size={:small} />
+        <.card :for={_ <- 1..min(@card_count, 10)//1} face={:down} size={:small} />
       </div>
       <div class="text-xs text-green-200/70">
         {gettext("Tricks: %{count}", count: @tricks)}
