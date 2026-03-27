@@ -513,7 +513,11 @@ defmodule PreferansWebWeb.GameComponents do
           {gettext("All passed — Refe")}
         </div>
 
-        <div :if={!@view.scoring_result.all_passed}>
+        <div :if={@view.scoring_result.free_pass} class="text-center text-green-200">
+          {gettext("Free pass")} — {Cards.game_name(@view.game_type)}
+        </div>
+
+        <div :if={!@view.scoring_result.all_passed and !@view.scoring_result.free_pass}>
           <div class="text-center text-green-100 mb-2">
             {display_name(@view, @view.declarer)}: {Cards.game_name(@view.game_type)} — {if @view.scoring_result.declarer_passed,
               do: gettext("Passed"),
