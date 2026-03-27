@@ -290,7 +290,7 @@ defmodule PreferansWebWeb.GameComponents do
           phx-value-action="dodjem"
           class="btn-game btn-game-primary"
         >
-          {if :poziv in @view.legal_actions, do: gettext("Play alone"), else: gettext("I defend")}
+          {gettext("I defend")}
         </button>
         <button
           :if={:ne_dodjem in @view.legal_actions}
@@ -301,12 +301,20 @@ defmodule PreferansWebWeb.GameComponents do
           {gettext("I pass")}
         </button>
         <button
-          :if={:poziv in @view.legal_actions}
+          :if={:sam in @view.legal_actions}
           phx-click="defense"
-          phx-value-action="poziv"
+          phx-value-action="sam"
+          class="btn-game btn-game-primary"
+        >
+          {gettext("Play alone")}
+        </button>
+        <button
+          :if={:idemo_zajedno in @view.legal_actions}
+          phx-click="defense"
+          phx-value-action="idemo_zajedno"
           class="btn-game btn-game-accent"
         >
-          {gettext("Call partner (Poziv)")}
+          {gettext("Call partner")}
         </button>
       </div>
       <div
@@ -321,7 +329,9 @@ defmodule PreferansWebWeb.GameComponents do
 
   defp format_defense(:dodjem), do: gettext("I defend")
   defp format_defense(:ne_dodjem), do: gettext("I pass")
-  defp format_defense(:poziv), do: gettext("Poziv (called partner)")
+  defp format_defense(:poziv), do: gettext("Called partner")
+  defp format_defense(:sam), do: gettext("Alone")
+  defp format_defense(:idemo_zajedno), do: gettext("Called partner")
 
   ## Kontra phase
 
@@ -421,6 +431,7 @@ defmodule PreferansWebWeb.GameComponents do
   defp find_caller(defense_responses) do
     Enum.find_value(defense_responses, fn
       {player, :poziv} -> player
+      {player, :idemo_zajedno} -> player
       _ -> nil
     end)
   end
