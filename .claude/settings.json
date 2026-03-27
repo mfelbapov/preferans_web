@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ctest -R test_post_bid --output-on-failure)",
+      "Bash(ctest -R test_game_state --output-on-failure)",
+      "Bash(ctest -R test_legal_moves --output-on-failure)",
+      "Bash(ctest -R \"test_post_bid|test_game_state|test_legal_moves\" --output-on-failure)"
+    ]
+  }
+}
