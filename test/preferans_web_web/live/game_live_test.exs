@@ -33,8 +33,8 @@ defmodule PreferansWebWeb.GameLiveTest do
     test "shows bidding UI", %{conn: conn, game_id: game_id} do
       {:ok, _lv, html} = live(conn, ~p"/game/#{game_id}")
 
-      # Should show either bidding UI or waiting message
-      assert html =~ "Pass" or html =~ "Waiting"
+      # New UI uses Serbian "Dalje" (Pass) and the bid ladder, or shows the waiting line.
+      assert html =~ "DALJE" or html =~ "čeka"
     end
   end
 
@@ -65,7 +65,7 @@ defmodule PreferansWebWeb.GameLiveTest do
 
       # Click first card — should get selected (ring-2 class)
       html = lv |> element("#discard-#{card_dom_id(card1)}") |> render_click()
-      assert html =~ "ring-2"
+      assert html =~ "pf-card-selected"
 
       # Click second card — confirm button should appear
       lv |> element("#discard-#{card_dom_id(card2)}") |> render_click()
@@ -89,7 +89,7 @@ defmodule PreferansWebWeb.GameLiveTest do
 
       # Select card
       lv |> element("#discard-#{card_dom_id(card1)}") |> render_click()
-      assert render(lv) =~ "ring-2"
+      assert render(lv) =~ "pf-card-selected"
 
       # Deselect same card
       lv |> element("#discard-#{card_dom_id(card1)}") |> render_click()
@@ -107,13 +107,15 @@ defmodule PreferansWebWeb.GameLiveTest do
     end
   end
 
-  describe "scoring sidebar" do
-    test "shows bule values", %{conn: conn} = ctx do
+  describe "scoresheets" do
+    test "renders one mini scoresheet per seat", %{conn: conn} = ctx do
       %{game_id: game_id} = start_game(ctx)
       {:ok, _lv, html} = live(conn, ~p"/game/#{game_id}")
 
-      assert html =~ "Bule"
-      assert html =~ "100"
+      # Three TABLA headers — one per mini-scoresheet (left rail, right rail × 2)
+      assert html =~ "TABLA"
+      # Grand-total label appears in each mini-scoresheet
+      assert html =~ "Ukupno"
     end
   end
 

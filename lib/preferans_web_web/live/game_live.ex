@@ -2,9 +2,14 @@ defmodule PreferansWebWeb.GameLive do
   use PreferansWebWeb, :live_view
 
   import PreferansWebWeb.CardComponent
-  import PreferansWebWeb.GameComponents
+  import PreferansWebWeb.GameComponents, only: [debug_panel: 1]
+  import PreferansWebWeb.PhasePanels
+  import PreferansWebWeb.Scoresheet
+  import PreferansWebWeb.SeatPanel
 
   alias PreferansWeb.Game.{Cards, GameServer}
+
+  @starting_bule 100
 
   @impl true
   def mount(%{"id" => game_id}, _session, socket) do
@@ -174,127 +179,207 @@ defmodule PreferansWebWeb.GameLive do
   @impl true
   def render(assigns) do
     ~H"""
-    <div class="flex h-screen w-screen overflow-hidden" id="game-container">
-      <%!-- Game table --%>
-      <div class="flex-1 game-table flex flex-col">
-        <%!-- Top bar --%>
-        <div class="flex justify-between items-center px-4 py-2">
-          <.link navigate={~p"/lobby"} class="text-green-300/60 text-sm hover:text-green-200">
-            ← {gettext("Back to Lobby")}
-          </.link>
-          <div class="flex items-center gap-3">
-            <div class="text-green-300/50 text-xs">
-              {phase_label(@view.phase)}
-            </div>
-            <button
-              phx-click="toggle_debug"
-              class={[
-                "text-xs px-2 py-0.5 rounded",
-                @show_debug && "bg-amber-600 text-white",
-                !@show_debug && "bg-gray-700 text-gray-400 hover:text-gray-200"
-              ]}
-            >
-              Debug
-            </button>
+    <div
+      id="game-container"
+      class="pf-surface-felt"
+      style="position: fixed; inset: 0; overflow: hidden; color: #f5e9d4; font-family: var(--font-display);"
+    >
+      <div style="display: grid; grid-template-columns: 320px 1fr 360px; height: 100vh;">
+        <%!-- Left rail --%>
+        <div class="pf-side-left" style={side_style(:left)}>
+          <.seat_panel
+            name={display_name(@view, @positions.left)}
+            avatar_color="#5a3a4a"
+            card_count={Map.get(@view.opponent_card_counts, @positions.left, 0)}
+            tricks={Enum.at(@view.tricks_won, @positions.left)}
+            dealer?={@view.dealer == @positions.left}
+            declarer?={@view.declarer == @positions.left}
+            partner?={partner?(@view, @positions.left)}
+            out?={@view.defense_responses[@positions.left] == :ne_dodjem}
+            current_action={last_action_text(@view, @positions.left)}
+            side={:left}
+            lang={:sr}
+          />
+          <div class="pf-paper" style={paper_wrap_style(0.6)}>
+            <.mini_scoresheet
+              player_name={display_name(@view, @positions.left)}
+              total={total_for_seat(@view, @positions.left)}
+              lang={:sr}
+            />
+          </div>
+          <div style="margin-top: 8px; margin-bottom: 14px; align-self: center;">
+            <.refe counts={@view.match_refe_counts} per_refe={10} count={3} />
           </div>
         </div>
 
-        <%!-- Main table area --%>
-        <div class="flex-1 flex flex-col items-center justify-between px-8 py-4">
-          <%!-- Opponents row --%>
-          <div class="flex justify-between w-full max-w-3xl">
-            <.opponent_area
-              name={display_name(@view, @positions.left)}
-              card_count={Map.get(@view.opponent_card_counts, @positions.left, 0)}
-              tricks={Enum.at(@view.tricks_won, @positions.left)}
-              is_current={@view.current_player == @positions.left}
-              is_declarer={@view.declarer == @positions.left}
-              is_dealer={@view.dealer == @positions.left}
-              position={:left}
-            />
-            <.opponent_area
-              name={display_name(@view, @positions.right)}
-              card_count={Map.get(@view.opponent_card_counts, @positions.right, 0)}
-              tricks={Enum.at(@view.tricks_won, @positions.right)}
-              is_current={@view.current_player == @positions.right}
-              is_declarer={@view.declarer == @positions.right}
-              is_dealer={@view.dealer == @positions.right}
-              position={:right}
+        <%!-- Center column --%>
+        <div
+          class="pf-center"
+          style="position: relative; display: flex; flex-direction: column; min-width: 0;"
+        >
+          <%!-- Header --%>
+          <div style="display: flex; justify-content: space-between; align-items: center; padding: 14px 24px;">
+            <.link
+              navigate={~p"/lobby"}
+              style="font-family: var(--font-mono); font-size: 11px; color: #d4b57299; letter-spacing: 0.15em; text-decoration: none;"
+            >
+              ← LOBBY
+            </.link>
+            <div style="font-family: var(--font-display); font-size: 14px; letter-spacing: 0.3em; color: #d4b572; text-transform: uppercase;">
+              Preferans
+            </div>
+            <div style="display: flex; gap: 14px; align-items: center; font-family: var(--font-mono); font-size: 11px; color: #d4b57299; letter-spacing: 0.1em;">
+              <div :if={@view.game_type}>
+                IGRA: <span style="color: #d4b572;">{format_contract(@view)}</span>
+                <span :if={@view.kontra_level > 0} style="color: #d96666; margin-left: 8px;">
+                  ×{Integer.pow(2, @view.kontra_level)}
+                </span>
+              </div>
+              <div>
+                ŠTIH {min(
+                  (@view.trick_number || 0) + if(@view.phase == :trick_play, do: 1, else: 0),
+                  10
+                )}/10
+              </div>
+              <button
+                phx-click="toggle_debug"
+                style={debug_toggle_style(@show_debug)}
+              >
+                DEBUG
+              </button>
+            </div>
+          </div>
+
+          <%!-- Talon (visible during bid + discard before declarer takes) --%>
+          <div
+            :if={show_talon?(@view)}
+            style="display: flex; justify-content: center; gap: 8px; padding: 4px 0;"
+          >
+            <.card
+              :for={i <- 0..1}
+              card={Enum.at(@view.talon || [], i)}
+              face={if @view.talon && Enum.at(@view.talon, i), do: :up, else: :down}
+              size={:md}
             />
           </div>
 
-          <%!-- Center area --%>
-          <div class="flex flex-col items-center gap-4">
-            <%!-- Talon --%>
-            <div :if={show_talon?(@view)} class="flex gap-2 mb-2">
-              <div class="text-green-300/50 text-xs text-center mb-1 w-full">Talon</div>
-              <div class="flex gap-2">
-                <.card
-                  :for={{c, i} <- Enum.with_index(@view.talon || [nil, nil])}
-                  id={if c, do: "talon-#{elem(c, 0)}-#{elem(c, 1)}", else: "talon-back-#{i}"}
-                  card={c}
-                  face={if @view.talon, do: :up, else: :down}
-                  size={:small}
-                />
-              </div>
-            </div>
-
-            <%!-- Phase content --%>
+          <%!-- Phase content --%>
+          <div style="flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 16px 24px; gap: 16px;">
             <%= case @view.phase do %>
               <% :bid -> %>
-                <.bidding_phase view={@view} />
+                <.bidding_panel view={@view} lang={:sr} />
               <% :discard -> %>
-                <.discard_phase view={@view} selected={@selected_discards} />
+                <.discard_panel view={@view} selected={@selected_discards} lang={:sr} />
               <% :declare_game -> %>
-                <.declare_game_phase view={@view} />
+                <.declare_panel view={@view} lang={:sr} />
               <% :defense -> %>
-                <.defense_phase view={@view} />
+                <.defense_panel view={@view} lang={:sr} />
               <% :kontra -> %>
-                <.kontra_phase view={@view} />
+                <.kontra_panel view={@view} lang={:sr} />
               <% :trick_play -> %>
-                <.trick_play_phase view={@view} positions={@positions} />
+                <.trick_area view={@view} positions={@positions} lang={:sr} />
               <% :hand_over -> %>
-                <.scoring_phase view={@view} />
+                <.scoring_panel view={@view} lang={:sr} />
               <% _ -> %>
-                <div class="text-green-200/60 text-sm">{gettext("Waiting...")}</div>
+                <div style="color: #d4b57299; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.15em;">
+                  …
+                </div>
             <% end %>
           </div>
 
-          <%!-- Player's hand --%>
-          <div class="flex flex-col items-center gap-2 pb-4">
-            <div class="flex items-center gap-1.5 text-sm text-green-100">
-              <span class={[
-                "w-2 h-2 rounded-full",
-                @view.is_my_turn && "bg-amber-400",
-                !@view.is_my_turn && "bg-transparent"
-              ]} />
-              <span class="font-medium">{display_name(@view, @seat)}</span>
-              <span :if={@view.dealer == @seat} class="text-green-400/70 text-2xl">
-                {gettext("Ⓓ")}
-              </span>
-              <span
-                :if={@view.declarer == @seat}
-                class="bg-red-600 text-white text-xs font-bold uppercase px-1.5 py-0.5 rounded"
+          <%!-- Human hand row --%>
+          <div style="padding: 14px 24px 20px; display: flex; flex-direction: column; align-items: center; gap: 8px; min-height: 200px;">
+            <div style="font-family: var(--font-mono); font-size: 10px; color: #d4b57299; letter-spacing: 0.2em; text-transform: uppercase;">
+              {display_name(@view, @seat)}
+              <span :if={@view.declarer == @seat} style="color: #d4b572;"> · IGRA</span>
+              <span :if={partner?(@view, @seat)} style="color: #d4b572;"> · POZIV</span>
+              <span :if={@view.dealer == @seat}> · DELE</span>
+              <span :if={@view.is_my_turn} style="color: #d4b572;"> · NA POTEZU</span>
+            </div>
+
+            <div style="display: flex; gap: 6px; align-items: baseline; font-family: var(--font-mono);">
+              <div style="font-size: 10px; color: #d4b57299; text-transform: uppercase; letter-spacing: 0.15em;">
+                Štih
+              </div>
+              <div style={"font-family: var(--font-display); font-size: 18px; font-weight: 700; color: #{if Enum.at(@view.tricks_won, @seat) > 0, do: "#d4b572", else: "#d4b57266"};"}>
+                {Enum.at(@view.tricks_won, @seat)}<span style="font-size: 12px; opacity: 0.5;">/10</span>
+              </div>
+            </div>
+
+            <div style="position: relative; display: flex; justify-content: center; min-height: 116px;">
+              <div
+                :for={{c, i} <- Enum.with_index(@view.my_hand)}
+                style={"margin-left: #{if i == 0, do: 0, else: -22}px; z-index: #{i}; position: relative;"}
               >
-                {gettext("IGRAC")}
-              </span>
+                <% legal? = legal_for_human?(@view, c) %>
+                <% selected? = MapSet.member?(@selected_discards, c) %>
+                <% clickable? =
+                  (@view.phase == :discard and @view.declarer == @seat) or
+                    (@view.phase == :trick_play and legal?) %>
+                <% click_event =
+                  cond do
+                    @view.phase == :discard and @view.declarer == @seat -> "toggle_discard"
+                    @view.phase == :trick_play and legal? -> "play_card"
+                    true -> nil
+                  end %>
+                <.card
+                  card={c}
+                  size={:lg}
+                  selected={selected?}
+                  dimmed={
+                    (@view.phase == :trick_play and not legal?) or
+                      (@view.phase == :discard and @view.declarer == @seat and
+                         MapSet.size(@selected_discards) >= 2 and not selected?)
+                  }
+                  clickable={clickable?}
+                  click_event={click_event}
+                  click_value={Cards.card_to_key(c)}
+                  id={"#{card_id_prefix(@view)}-#{elem(c, 0)}-#{elem(c, 1)}"}
+                />
+              </div>
+              <div
+                :if={@view.my_hand == []}
+                style="color: #d4b57266; font-family: var(--font-mono); font-size: 12px; padding: 40px;"
+              >
+                kraj ruke
+              </div>
             </div>
+          </div>
+        </div>
 
-            <div :if={@view.phase != :discard or @view.declarer != @seat}>
-              <.my_hand view={@view} phase_clickable={@view.phase == :trick_play} />
-            </div>
-
-            <div class="text-xs text-green-200/70">
-              {gettext("Tricks: %{count}", count: Enum.at(@view.tricks_won, @seat))}
-            </div>
+        <%!-- Right rail --%>
+        <div class="pf-side-right" style={side_style(:right)}>
+          <.seat_panel
+            name={display_name(@view, @positions.right)}
+            avatar_color="#3a4a5a"
+            card_count={Map.get(@view.opponent_card_counts, @positions.right, 0)}
+            tricks={Enum.at(@view.tricks_won, @positions.right)}
+            dealer?={@view.dealer == @positions.right}
+            declarer?={@view.declarer == @positions.right}
+            partner?={partner?(@view, @positions.right)}
+            out?={@view.defense_responses[@positions.right] == :ne_dodjem}
+            current_action={last_action_text(@view, @positions.right)}
+            side={:right}
+            lang={:sr}
+          />
+          <div class="pf-paper" style={paper_wrap_style(-0.5)}>
+            <.mini_scoresheet
+              player_name={display_name(@view, @positions.right)}
+              total={total_for_seat(@view, @positions.right)}
+              lang={:sr}
+            />
+          </div>
+          <div class="pf-paper" style={paper_wrap_style(0.4)}>
+            <.mini_scoresheet
+              player_name={display_name(@view, @seat)}
+              total={total_for_seat(@view, @seat)}
+              lang={:sr}
+            />
           </div>
         </div>
       </div>
 
-      <%!-- Scoring sidebar --%>
-      <.scoring_sidebar view={@view} />
-
-      <%!-- Debug panel --%>
+      <%!-- Debug panel overlay --%>
       <.debug_panel :if={@show_debug && @debug_state} debug_state={@debug_state} />
     </div>
     """
@@ -331,12 +416,102 @@ defmodule PreferansWebWeb.GameLive do
     view.phase == :bid or (view.phase == :discard and view.talon != nil)
   end
 
-  defp phase_label(:bid), do: "Bidding"
-  defp phase_label(:discard), do: "Discard"
-  defp phase_label(:declare_game), do: "Declare"
-  defp phase_label(:defense), do: "Defense"
-  defp phase_label(:kontra), do: "Kontra"
-  defp phase_label(:trick_play), do: "Trick Play"
-  defp phase_label(:hand_over), do: "Hand Over"
-  defp phase_label(_), do: ""
+  defp partner?(view, seat) do
+    seat != view.declarer and view.defense_responses[seat] in [:poziv, :idemo_zajedno]
+  end
+
+  defp total_for_seat(view, seat) do
+    Enum.at(view.match_bule, seat, @starting_bule) - @starting_bule
+  end
+
+  defp last_action_text(view, seat) do
+    cond do
+      view.phase == :bid ->
+        view.bid_history
+        |> Enum.reverse()
+        |> Enum.find_value(fn entry ->
+          if entry.player == seat, do: bid_action_short(entry.action)
+        end)
+
+      true ->
+        case view.defense_responses[seat] do
+          :dodjem -> "Dođem"
+          :ne_dodjem -> "Ne dođem"
+          :poziv -> "Poziv"
+          :sam -> "Sam"
+          :idemo_zajedno -> "Idemo"
+          _ -> nil
+        end
+    end
+  end
+
+  defp bid_action_short(:dalje), do: "Dalje"
+  defp bid_action_short({:bid, 2}), do: "Pik"
+  defp bid_action_short({:bid, 3}), do: "Karo"
+  defp bid_action_short({:bid, 4}), do: "Herc"
+  defp bid_action_short({:bid, 5}), do: "Tref"
+  defp bid_action_short({:bid, 6}), do: "Betl"
+  defp bid_action_short({:bid, 7}), do: "Sans"
+  defp bid_action_short(:moje), do: "Moje"
+  defp bid_action_short({:moje, _}), do: "Moje"
+  defp bid_action_short(:igra), do: "Igra"
+  defp bid_action_short(:igra_betl), do: "Igra Betl"
+  defp bid_action_short(:igra_sans), do: "Igra Sans"
+  defp bid_action_short(_), do: nil
+
+  defp card_id_prefix(%{phase: :discard}), do: "discard"
+  defp card_id_prefix(_), do: "hand"
+
+  defp legal_for_human?(view, card) do
+    Enum.any?(view.legal_actions, fn
+      {:play, c} -> c == card
+      _ -> false
+    end)
+  end
+
+  defp format_contract(view) do
+    name =
+      case view.game_type do
+        :pik -> "Pik"
+        :karo -> "Karo"
+        :herc -> "Herc"
+        :tref -> "Tref"
+        :betl -> "Betl"
+        :sans -> "Sans"
+        _ -> ""
+      end
+
+    if view.game_type in [:pik, :karo, :herc, :tref] do
+      name <> " " <> Cards.suit_symbol(view.game_type)
+    else
+      name
+    end
+  end
+
+  defp side_style(side) do
+    border = if side == :left, do: "border-right", else: "border-left"
+
+    """
+    background: linear-gradient(180deg, rgba(0,0,0,0.18), rgba(0,0,0,0.05));
+    #{border}: 1px solid rgba(212,181,114,0.12);
+    overflow: auto;
+    display: flex; flex-direction: column;
+    """
+  end
+
+  defp paper_wrap_style(rotation) do
+    """
+    margin-top: 8px; margin-left: 8px; margin-right: 8px;
+    transform: rotate(#{rotation}deg);
+    align-self: center;
+    """
+  end
+
+  defp debug_toggle_style(true) do
+    "background: #d4b572; color: #2a1d10; border: 1px solid #d4b572; padding: 2px 8px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em; cursor: pointer; border-radius: 3px;"
+  end
+
+  defp debug_toggle_style(false) do
+    "background: transparent; color: #d4b57299; border: 1px solid #d4b57244; padding: 2px 8px; font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.15em; cursor: pointer; border-radius: 3px;"
+  end
 end

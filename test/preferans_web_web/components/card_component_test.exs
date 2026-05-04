@@ -9,16 +9,12 @@ defmodule PreferansWebWeb.CardComponentTest do
       render_component(&card/1,
         card: {:herc, :ace},
         face: :up,
-        clickable: false,
-        selected: false,
-        dimmed: false,
-        size: :normal,
-        click_event: nil,
-        click_value: nil
+        size: :md
       )
 
     assert html =~ "A"
     assert html =~ "♥"
+    assert html =~ "pf-card-face"
   end
 
   test "renders face-down card without card info" do
@@ -26,15 +22,10 @@ defmodule PreferansWebWeb.CardComponentTest do
       render_component(&card/1,
         card: nil,
         face: :down,
-        clickable: false,
-        selected: false,
-        dimmed: false,
-        size: :normal,
-        click_event: nil,
-        click_value: nil
+        size: :md
       )
 
-    assert html =~ "card-back-pattern"
+    assert html =~ "pf-card-back"
     refute html =~ "♥"
     refute html =~ "♠"
   end
@@ -44,15 +35,11 @@ defmodule PreferansWebWeb.CardComponentTest do
       render_component(&card/1,
         card: {:pik, :king},
         face: :up,
-        clickable: false,
-        selected: false,
-        dimmed: false,
-        size: :small,
-        click_event: nil,
-        click_value: nil
+        size: :sm
       )
 
-    assert html =~ "w-[60px]"
+    # sm width is 44px (md is 64px)
+    assert html =~ "width: 44px"
     assert html =~ "K"
     assert html =~ "♠"
   end
