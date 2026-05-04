@@ -102,69 +102,55 @@
 /* Make LiveView wrapper divs transparent for layout */
 [data-phx-session], [data-phx-teleported-src] { display: contents }
 
-/* Game table styles */
-.game-table {
-  background-color: #1B4332;
-  background-image:
-    radial-gradient(ellipse at center, rgba(255,255,255,0.03) 0%, transparent 70%);
+/* === Preferans design tokens === */
+:root {
+  --font-display: 'Cormorant Garamond', Georgia, serif;
+  --font-card: 'Cormorant Garamond', Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+  --font-hand: 'Caveat', cursive;
+  --font-ui: 'Manrope', system-ui, sans-serif;
+
+  --card-bg: #faf3e3;
+  --card-red: #b22424;
+  --card-black: #181410;
+
+  --paper: #f1e3c4;
+  --accent: #d4b572;
 }
 
-/* Card colors */
-.text-card-red { color: #C41E3A; }
-.text-card-black { color: #1A1A2E; }
-.bg-card-cream { background-color: #FEFCE8; }
-.bg-card-back { background-color: #1B4332; }
-.border-card-back-border { border-color: #2D6A4F; }
-
-/* Card back pattern */
-.card-back-pattern {
-  background-image: repeating-linear-gradient(
-    45deg,
-    transparent,
-    transparent 5px,
-    rgba(255,255,255,0.05) 5px,
-    rgba(255,255,255,0.05) 10px
-  );
+/* Surfaces */
+.pf-surface-felt {
+  background:
+    radial-gradient(ellipse at center, #2a4a36 0%, #1a3024 55%, #0d1c14 100%),
+    #1a3024;
+}
+.pf-surface-dark {
+  background:
+    radial-gradient(ellipse at center, #2a1a10 0%, #15100a 60%, #0a0805 100%),
+    #15100a;
+}
+.pf-surface-paper {
+  background:
+    radial-gradient(ellipse at center, #d6c9a8 0%, #b8a584 70%, #8a7858 100%),
+    #b8a584;
+  color: #2a1d10;
 }
 
-/* Sidebar */
-.bg-sidebar-bg { background-color: #0F2419; }
-
-/* Game action buttons */
-.btn-game {
-  padding: 0.5rem 1rem;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  transition: all 0.15s;
+/* Card deal-in animation */
+@keyframes pf-card-in {
+  from { transform: translateY(-30px) scale(0.94); opacity: 0; }
+  to   { transform: translateY(0) scale(1); opacity: 1; }
 }
 
-.btn-game-primary {
-  background-color: #D97706;
-  color: white;
-}
-.btn-game-primary:hover {
-  background-color: #B45309;
-}
-
-.btn-game-secondary {
-  background-color: #4B5563;
-  color: white;
-}
-.btn-game-secondary:hover {
-  background-color: #374151;
-}
-
-.btn-game-accent {
-  background-color: #7C3AED;
-  color: white;
-}
-.btn-game-accent:hover {
-  background-color: #6D28D9;
-}
-
-.btn-game-disabled {
-  background-color: #374151;
-  color: #6B7280;
-  cursor: not-allowed;
+/* Paper sheet overlay (used on .pf-paper wrappers) */
+.pf-paper { position: relative; }
+.pf-paper::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(120,80,40,0.08), transparent 60%),
+    radial-gradient(ellipse at 80% 90%, rgba(120,80,40,0.1), transparent 50%);
+  pointer-events: none;
+  border-radius: inherit;
 }

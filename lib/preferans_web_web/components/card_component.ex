@@ -1,97 +1,150 @@
 defmodule PreferansWebWeb.CardComponent do
   @moduledoc """
-  Function component for rendering a single playing card.
-  CSS-only rendering — structured so SVG swap is easy later.
+  Single playing card. Cream face with TL/BR corner indices and a large center
+  pip; burgundy diagonal-stripe back with an inset border and "P" monogram.
   """
   use Phoenix.Component
 
   alias PreferansWeb.Game.Cards
+
+  @sizes %{
+    xs: %{w: 28, h: 40, font: 11, sym: 9, corner: 4, pip_ratio: 0.42},
+    sm: %{w: 44, h: 64, font: 14, sym: 12, corner: 6, pip_ratio: 0.42},
+    md: %{w: 64, h: 92, font: 20, sym: 18, corner: 6, pip_ratio: 0.42},
+    lg: %{w: 80, h: 116, font: 26, sym: 22, corner: 8, pip_ratio: 0.42},
+    # Legacy aliases used by step-5 callers; remove once those are rewritten.
+    small: %{w: 44, h: 64, font: 14, sym: 12, corner: 6, pip_ratio: 0.42},
+    normal: %{w: 64, h: 92, font: 20, sym: 18, corner: 6, pip_ratio: 0.42}
+  }
 
   attr :card, :any, default: nil, doc: "{suit, rank} tuple or nil for face-down"
   attr :face, :atom, default: :up, doc: ":up or :down"
   attr :clickable, :boolean, default: false
   attr :selected, :boolean, default: false
   attr :dimmed, :boolean, default: false
-  attr :size, :atom, default: :normal, doc: ":normal or :small"
+  attr :size, :atom, default: :md, doc: ":xs | :sm | :md | :lg"
   attr :click_event, :string, default: nil
   attr :click_value, :string, default: nil
   attr :id, :string, default: nil
 
   def card(assigns) do
+    dims = Map.fetch!(@sizes, assigns.size)
+
     assigns =
-      assign_new(assigns, :dom_id, fn ->
-        assigns[:id]
-      end)
+      assigns
+      |> assign(:dims, dims)
+      |> assign(:back?, assigns.face == :down or is_nil(assigns.card))
 
     ~H"""
-    <%= if @face == :down or @card == nil do %>
-      <div class={card_back_classes(@size)} />
-    <% else %>
+    <div :if={@back?} style={back_style(@dims)} class="pf-card pf-card-back">
+      <div style={back_inset_style(@dims)}></div>
+      <div style={back_monogram_style(@dims)}>P</div>
+    </div>
+    <div
+      :if={!@back?}
+      id={@id}
+      phx-click={@click_event}
+      phx-value-card={@click_value}
+      style={face_style(@dims, @selected, @dimmed, @clickable)}
+      class={["pf-card pf-card-face", @clickable && "cursor-pointer"]}
+    >
       <% {suit, rank} = @card %>
-      <% color_class = if Cards.suit_color(suit) == :red, do: "text-card-red", else: "text-card-black" %>
-      <div
-        id={@dom_id}
-        class={card_face_classes(@size, @clickable, @selected, @dimmed)}
-        phx-click={@click_event}
-        phx-value-card={@click_value}
-      >
-        <div class={["absolute top-0.5 left-1 leading-none text-center", color_class]}>
-          <div class={rank_class(@size)}>{Cards.rank_label(rank)}</div>
-          <div class={suit_small_class(@size)}>{Cards.suit_symbol(suit)}</div>
-        </div>
-        <div class={["absolute inset-0 flex items-center justify-center", color_class]}>
-          <span class={suit_center_class(@size)}>{Cards.suit_symbol(suit)}</span>
-        </div>
-        <div class={[
-          "absolute bottom-0.5 right-1 leading-none text-center rotate-180",
-          color_class
-        ]}>
-          <div class={rank_class(@size)}>{Cards.rank_label(rank)}</div>
-          <div class={suit_small_class(@size)}>{Cards.suit_symbol(suit)}</div>
-        </div>
+      <% color = if Cards.suit_color(suit) == :red, do: "var(--card-red)", else: "var(--card-black)" %>
+      <div style={corner_style(:tl, @dims, color)}>
+        <span>{Cards.rank_label(rank)}</span>
+        <span style={"font-size: #{@dims.sym}px; margin-top: -2px;"}>{Cards.suit_symbol(suit)}</span>
       </div>
-    <% end %>
+      <div style={corner_style(:br, @dims, color)}>
+        <span>{Cards.rank_label(rank)}</span>
+        <span style={"font-size: #{@dims.sym}px; margin-top: -2px;"}>{Cards.suit_symbol(suit)}</span>
+      </div>
+      <div style={pip_style(@dims, color)}>{Cards.suit_symbol(suit)}</div>
+    </div>
     """
   end
 
-  defp card_face_classes(size, clickable, selected, dimmed) do
-    base = [
-      "relative rounded-lg border bg-card-cream select-none transition-transform duration-150",
-      if(size == :small, do: "w-[60px] h-[84px]", else: "w-[90px] h-[126px]")
-    ]
+  defp face_style(dims, selected, dimmed, clickable) do
+    base = """
+    width: #{dims.w}px; height: #{dims.h}px;
+    border: 1px solid #1a1410; border-radius: #{dims.corner}px;
+    background: var(--card-bg); position: relative; overflow: hidden;
+    user-select: none; flex-shrink: 0;
+    transition: transform 160ms cubic-bezier(.2,.7,.2,1), box-shadow 160ms;
+    """
 
     state =
       cond do
         selected ->
-          "border-blue-400 -translate-y-3 ring-2 ring-blue-400 z-10 shadow-lg"
+          "opacity: 1; transform: translateY(-12px); box-shadow: 0 -8px 0 -2px var(--accent), 0 12px 24px rgba(0,0,0,0.35);"
 
         dimmed ->
-          "border-stone-300 opacity-40 cursor-default shadow-sm"
+          "opacity: 0.42; box-shadow: 0 4px 10px rgba(0,0,0,0.28);"
 
         clickable ->
-          "border-stone-300 cursor-pointer hover:scale-105 hover:-translate-y-1 shadow-sm"
+          "opacity: 1; box-shadow: 0 4px 10px rgba(0,0,0,0.28);"
 
         true ->
-          "border-stone-300 shadow-sm"
+          "opacity: 1; box-shadow: 0 4px 10px rgba(0,0,0,0.28);"
       end
 
-    (base ++ [state])
-    |> List.flatten()
-    |> Enum.join(" ")
+    base <> state
   end
 
-  defp card_back_classes(size) do
-    size_class = if size == :small, do: "w-[60px] h-[84px]", else: "w-[90px] h-[126px]"
-
-    "#{size_class} rounded-lg border-2 border-card-back-border bg-card-back select-none card-back-pattern"
+  defp corner_style(:tl, dims, color) do
+    """
+    position: absolute; top: 4px; left: 6px; color: #{color};
+    font-family: var(--font-card); font-size: #{dims.font}px;
+    line-height: 1; font-weight: 600; letter-spacing: -0.02em;
+    display: flex; flex-direction: column; align-items: center;
+    """
   end
 
-  defp rank_class(:small), do: "text-xs font-bold"
-  defp rank_class(_), do: "text-sm font-bold"
+  defp corner_style(:br, dims, color) do
+    """
+    position: absolute; bottom: 4px; right: 6px; color: #{color};
+    font-family: var(--font-card); font-size: #{dims.font}px;
+    line-height: 1; font-weight: 600; letter-spacing: -0.02em;
+    transform: rotate(180deg);
+    display: flex; flex-direction: column; align-items: center;
+    """
+  end
 
-  defp suit_small_class(:small), do: "text-[10px] -mt-0.5"
-  defp suit_small_class(_), do: "text-xs -mt-0.5"
+  defp pip_style(dims, color) do
+    pip_size = round(dims.h * dims.pip_ratio)
 
-  defp suit_center_class(:small), do: "text-2xl"
-  defp suit_center_class(_), do: "text-4xl"
+    """
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: #{color}; font-size: #{pip_size}px; line-height: 1; opacity: 0.9;
+    """
+  end
+
+  defp back_style(dims) do
+    """
+    width: #{dims.w}px; height: #{dims.h}px;
+    border-radius: #{dims.corner}px; border: 1px solid #1a1410;
+    background: repeating-linear-gradient(45deg, #6b1d1d 0 6px, #561414 6px 12px);
+    box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+    position: relative; flex-shrink: 0;
+    """
+  end
+
+  defp back_inset_style(dims) do
+    """
+    position: absolute; inset: 4px;
+    border: 1px solid rgba(255,220,180,0.25);
+    border-radius: #{max(dims.corner - 2, 0)}px;
+    """
+  end
+
+  defp back_monogram_style(dims) do
+    size = round(dims.h * 0.28)
+
+    """
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: rgba(255,220,180,0.5); font-family: var(--font-display);
+    font-size: #{size}px; font-weight: 700; letter-spacing: 0.05em;
+    """
+  end
 end
