@@ -46,7 +46,11 @@ defmodule PreferansWebWeb.CardComponent do
       phx-click={@click_event}
       phx-value-card={@click_value}
       style={face_style(@dims, @selected, @dimmed, @clickable)}
-      class={["pf-card pf-card-face", @clickable && "cursor-pointer"]}
+      class={[
+        "pf-card pf-card-face",
+        @clickable && "cursor-pointer",
+        @selected && "pf-card-selected"
+      ]}
     >
       <% {suit, rank} = @card %>
       <% color = if Cards.suit_color(suit) == :red, do: "var(--card-red)", else: "var(--card-black)" %>

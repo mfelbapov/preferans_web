@@ -63,8 +63,13 @@ defmodule PreferansWebWeb.Scoresheet do
           <.supa_col entries={@supa_left} />
         </div>
         <div style={bule_cell_style()}>
-          <div :for={b <- @bule_entries} style="display: flex; justify-content: space-between; line-height: 1.1;">
-            <span style="opacity: 0.45; font-size: 9px; font-family: var(--font-mono);">{b.hand}.</span>
+          <div
+            :for={b <- @bule_entries}
+            style="display: flex; justify-content: space-between; line-height: 1.1;"
+          >
+            <span style="opacity: 0.45; font-size: 9px; font-family: var(--font-mono);">
+              {b.hand}.
+            </span>
             <span style="font-weight: 600;">{b.score}</span>
           </div>
         </div>
@@ -127,7 +132,10 @@ defmodule PreferansWebWeb.Scoresheet do
     assigns = assign(assigns, :refes, refes)
 
     ~H"""
-    <div class="pf-refe" style="width: 220px; padding: 8px 6px; display: flex; justify-content: space-around; gap: 4px;">
+    <div
+      class="pf-refe"
+      style="width: 220px; padding: 8px 6px; display: flex; justify-content: space-around; gap: 4px;"
+    >
       <svg :for={{counts, i} <- Enum.with_index(@refes)} viewBox="0 0 70 62" width="70" height="62">
         <polygon
           points="35,6 6,56 64,56"
