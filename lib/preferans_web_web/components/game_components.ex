@@ -80,7 +80,7 @@ defmodule PreferansWebWeb.GameComponents do
       "",
       "=== MATCH STATE ===",
       "Bule: #{inspect(d.match_bule)}",
-      "Refes: #{inspect(d.match_refe_counts)}",
+      "Refes: #{inspect(d.match_refe_counts)} (hands played: #{inspect(d.match_refe_hands_played)})",
       "Supe Ledger: #{inspect(d.match_supe_ledger)}",
       "Hands Played: #{d.hands_played}",
       "Max Refes: #{d.max_refes}",

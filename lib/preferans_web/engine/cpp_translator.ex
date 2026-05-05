@@ -189,6 +189,14 @@ defmodule PreferansWeb.Engine.CppTranslator do
     end)
   end
 
+  ## Extract the kontra escalation chain from accumulated events.
+  ## Each entry is `%{player: seat, action: :kontra | :rekontra | :subkontra | :mortkontra}`.
+  def extract_kontra_history(events) do
+    Enum.filter(events, fn %{action: action} ->
+      action in [:kontra, :rekontra, :subkontra, :mortkontra]
+    end)
+  end
+
   ## Full state translation: C++ state → view map
 
   def translate_state(cpp_state, seat, extras \\ %{}) do
@@ -236,6 +244,7 @@ defmodule PreferansWeb.Engine.CppTranslator do
       refe_counts: cpp_state["refes"] || [0, 0, 0],
       kontra_level: cpp_state["kontra_level"] || 0,
       kontra_giver: cpp_state["kontra_giver"],
+      kontra_history: Map.get(extras, :kontra_history, []),
       scoring_result: translate_result(cpp_state["result"]),
       players:
         for s <- [0, 1, 2] do

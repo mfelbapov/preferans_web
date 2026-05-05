@@ -230,6 +230,7 @@ defmodule PreferansWebWeb.PhasePanels do
 
   attr :view, :map, required: true
   attr :selected, :any, required: true, doc: "MapSet of selected card tuples"
+  attr :talon_taken, :boolean, default: false
   attr :lang, :atom, default: :sr
 
   def discard_panel(assigns) do
@@ -246,7 +247,28 @@ defmodule PreferansWebWeb.PhasePanels do
       <.phase_banner phase={:discard} lang={@lang} />
 
       <div
-        :if={@is_declarer?}
+        :if={@is_declarer? and not @talon_taken}
+        style="display: flex; flex-direction: column; align-items: center; gap: 12px;"
+      >
+        <div style="color: #f5e9d4; font-family: var(--font-display); font-size: 16px; text-align: center;">
+          {if @lang == :sr, do: "Talon je otkriven", else: "Talon is revealed"}
+        </div>
+        <div style="color: #d4b57299; font-family: var(--font-mono); font-size: 11px; text-align: center; max-width: 360px;">
+          {if @lang == :sr,
+            do: "Uzmi obe karte u ruku",
+            else: "Take both cards into your hand"}
+        </div>
+        <button
+          phx-click="take_talon"
+          style={action_button_style(:primary)}
+          id="take-talon-btn"
+        >
+          {if @lang == :sr, do: "UZMI", else: "TAKE"}
+        </button>
+      </div>
+
+      <div
+        :if={@is_declarer? and @talon_taken}
         style="display: flex; flex-direction: column; align-items: center; gap: 12px;"
       >
         <div style="color: #f5e9d4; font-family: var(--font-display); font-size: 16px; text-align: center;">
@@ -266,14 +288,14 @@ defmodule PreferansWebWeb.PhasePanels do
           style={action_button_style(:primary)}
           id="confirm-discard-btn"
         >
-          {if @lang == :sr, do: "POTVRDI", else: "CONFIRM"}
+          {if @lang == :sr, do: "BACI", else: "DISCARD"}
         </button>
         <button
           :if={@selected_count != 2}
           disabled
           style={action_button_style(:disabled)}
         >
-          {if @lang == :sr, do: "POTVRDI", else: "CONFIRM"}
+          {if @lang == :sr, do: "BACI", else: "DISCARD"}
         </button>
       </div>
 
@@ -572,12 +594,12 @@ defmodule PreferansWebWeb.PhasePanels do
 
   def trick_area(assigns) do
     ~H"""
-    <div style="display: grid; grid-template-areas: 'l . r' '. s .'; grid-template-rows: 110px 110px; grid-template-columns: 90px 90px 90px; gap: 0; justify-content: center; align-items: center; width: 320px; height: 240px; position: relative;">
+    <div style="display: grid; grid-template-areas: 'l . r' '. s .'; grid-template-rows: 200px 200px; grid-template-columns: 140px 140px 140px; gap: 0; justify-content: center; align-items: center; width: 420px; height: 400px; position: relative;">
       <div
         :for={p <- @view.current_trick}
         style={trick_card_slot_style(p.player, @positions)}
       >
-        <.card card={p.card} size={:md} />
+        <.card card={p.card} size={:xl} />
       </div>
     </div>
     """

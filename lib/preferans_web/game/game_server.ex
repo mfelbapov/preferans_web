@@ -106,7 +106,9 @@ defmodule PreferansWeb.Game.GameServer do
           all_events: parsed_events,
           match_bule: init_arg[:starting_bule] || [100, 100, 100],
           match_refe_counts: init_arg[:refe_counts] || [0, 0, 0],
+          match_refe_hands_played: init_arg[:refe_hands_played] || [0, 0, 0],
           match_supe_ledger: %{},
+          match_history: [],
           hands_played: 0,
           current_dealer: init_arg[:current_dealer] || 0,
           match_id: init_arg[:match_id] || init_arg.game_id,
@@ -138,6 +140,7 @@ defmodule PreferansWeb.Game.GameServer do
       defenders: state.defenders,
       match_bule: state.match_bule,
       match_refe_counts: state.match_refe_counts,
+      match_refe_hands_played: state.match_refe_hands_played,
       match_supe_ledger: state.match_supe_ledger,
       hands_played: state.hands_played,
       current_dealer: state.current_dealer,
@@ -164,6 +167,7 @@ defmodule PreferansWeb.Game.GameServer do
         {:reply, {:error, :not_your_turn}, state}
 
       true ->
+        prior_trick_plays = extract_prior_trick_plays(state.cpp_state)
         cpp_action = CppTranslator.action_to_cpp(action)
         response = CppEngine.submit_action(state.port, cpp_action)
 
@@ -173,6 +177,9 @@ defmodule PreferansWeb.Game.GameServer do
             state = process_response(state, new_cpp_state, parsed_events)
 
             broadcast(state.game_id, {:action_played, state.game_id, seat, action})
+
+            maybe_broadcast_plays_sequence(state, prior_trick_plays, parsed_events)
+
             broadcast(state.game_id, {:game_state_updated, state.game_id})
 
             state = maybe_handle_hand_over(state)
@@ -262,7 +269,8 @@ defmodule PreferansWeb.Game.GameServer do
     extras = %{
       bid_history: state.bid_history,
       defense_responses: state.defense_responses,
-      defenders: state.defenders
+      defenders: state.defenders,
+      kontra_history: CppTranslator.extract_kontra_history(state.all_events)
     }
 
     view = CppTranslator.translate_state(state.cpp_state, seat, extras)
@@ -279,7 +287,9 @@ defmodule PreferansWeb.Game.GameServer do
       hands_played: state.hands_played,
       match_bule: state.match_bule,
       match_refe_counts: state.match_refe_counts,
-      match_supe_ledger: state.match_supe_ledger
+      match_refe_hands_played: state.match_refe_hands_played,
+      match_supe_ledger: state.match_supe_ledger,
+      match_history: state.match_history
     })
   end
 
@@ -351,17 +361,34 @@ defmodule PreferansWeb.Game.GameServer do
           state.match_refe_counts
       end
 
+    # Tally a hand to the dealer's side iff a refe was already active when this
+    # hand began (the all-pass hand that *triggers* a refe doesn't tally).
+    new_refe_hands_played =
+      if Enum.sum(state.match_refe_counts) > 0 do
+        List.update_at(state.match_refe_hands_played, state.current_dealer, &(&1 + 1))
+      else
+        state.match_refe_hands_played
+      end
+
     new_supe =
       Enum.reduce(scoring_result.supe_changes, state.match_supe_ledger, fn {key, amount},
                                                                            ledger ->
         Map.update(ledger, key, amount, &(&1 + amount))
       end)
 
+    hand_entry = %{
+      hand: state.hands_played + 1,
+      bule_changes: scoring_result.bule_changes,
+      supe_changes: Map.new(scoring_result.supe_changes)
+    }
+
     %{
       state
       | match_bule: new_bule,
         match_refe_counts: new_refe,
+        match_refe_hands_played: new_refe_hands_played,
         match_supe_ledger: new_supe,
+        match_history: state.match_history ++ [hand_entry],
         hands_played: state.hands_played + 1
     }
   end
@@ -381,5 +408,45 @@ defmodule PreferansWeb.Game.GameServer do
 
   defp broadcast(game_id, message) do
     PubSub.broadcast(@pubsub, topic(game_id), message)
+  end
+
+  defp extract_prior_trick_plays(cpp_state) do
+    trick = (cpp_state["trick_play"] || %{})["current_trick"] || []
+
+    Enum.map(trick, fn %{"player" => p, "card" => c} ->
+      %{player: p, card: CppTranslator.parse_card(c)}
+    end)
+  end
+
+  defp extract_play_events(parsed_events) do
+    parsed_events
+    |> Enum.filter(fn e -> match?({:play, _}, e.action) end)
+    |> Enum.map(fn %{player: p, action: {:play, c}} -> %{player: p, card: c} end)
+  end
+
+  defp maybe_broadcast_plays_sequence(state, prior_plays, parsed_events) do
+    new_plays = extract_play_events(parsed_events)
+
+    if new_plays != [] do
+      enriched = enrich_plays_with_trick_boundaries(prior_plays, new_plays)
+      broadcast(state.game_id, {:plays_sequence, state.game_id, enriched})
+    end
+  end
+
+  defp enrich_plays_with_trick_boundaries(prior_plays, plays) do
+    # Mark each play with whether it completes the trick, so the LiveView
+    # knows where to pause for the user's MOŽE click.
+    trick_size = 3
+    initial = length(prior_plays)
+
+    {enriched, _} =
+      Enum.reduce(plays, {[], initial}, fn play, {acc, count} ->
+        new_count = count + 1
+        complete = new_count >= trick_size
+        next = if complete, do: 0, else: new_count
+        {acc ++ [Map.put(play, :trick_complete, complete)], next}
+      end)
+
+    enriched
   end
 end

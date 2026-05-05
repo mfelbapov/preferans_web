@@ -6,7 +6,13 @@
       "Bash(ctest -R test_legal_moves --output-on-failure)",
       "Bash(ctest -R \"test_post_bid|test_game_state|test_legal_moves\" --output-on-failure)",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(git branch *)"
+      "Bash(git branch *)",
+      "Bash(mix format *)",
+      "Bash(cmake --build /Users/mfelbapov/Projects/preferans/build --target preferans_server)",
+      "Read(//private/tmp/**)",
+      "Read(//var/folders/z4/nz2td8p10cb7p8jjb4xllxd00000gn/T/TemporaryItems/NSIRD_screencaptureui_keAjl3/**)",
+      "Read(//private/var/folders/z4/nz2td8p10cb7p8jjb4xllxd00000gn/T/TemporaryItems/NSIRD_screencaptureui_keAjl3/**)",
+      "Bash(xxd)"
     ]
   }
 }
