@@ -10,6 +10,7 @@ defmodule PreferansWebWeb.GameLive do
   alias PreferansWeb.Game.{Cards, GameServer}
 
   @starting_bule 100
+  @reveal_delay_ms 700
 
   @impl true
   def mount(%{"id" => game_id}, _session, socket) do
@@ -30,9 +31,13 @@ defmodule PreferansWebWeb.GameLive do
          view: view,
          positions: positions,
          selected_discards: MapSet.new(),
+         talon_taken: false,
          show_scoring: false,
          show_debug: false,
-         debug_state: nil
+         debug_state: nil,
+         displayed_trick: nil,
+         play_queue: [],
+         awaiting_moze: false
        ), layout: false}
     else
       {:ok, socket |> put_flash(:error, "Game not found") |> redirect(to: ~p"/lobby")}
@@ -58,15 +63,84 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   @impl true
+  def handle_info({:plays_sequence, _game_id, plays}, socket) do
+    # Initialize the visual override from whatever cards are already on the table,
+    # then schedule the first reveal immediately so the user's own play doesn't lag.
+    displayed = socket.assigns.displayed_trick || socket.assigns.view.current_trick || []
+
+    socket =
+      socket
+      |> assign(
+        displayed_trick: displayed,
+        play_queue: socket.assigns.play_queue ++ plays
+      )
+
+    if not socket.assigns.awaiting_moze do
+      Process.send_after(self(), :reveal_next_play, 0)
+    end
+
+    {:noreply, socket}
+  end
+
+  @impl true
+  def handle_info(:reveal_next_play, socket) do
+    case socket.assigns.play_queue do
+      [] ->
+        # Queue drained: drop the override so view.current_trick takes over.
+        socket =
+          if socket.assigns.awaiting_moze,
+            do: socket,
+            else: assign(socket, displayed_trick: nil)
+
+        {:noreply, socket}
+
+      [play | rest] ->
+        new_displayed =
+          (socket.assigns.displayed_trick || []) ++
+            [%{player: play.player, card: play.card}]
+
+        socket = assign(socket, displayed_trick: new_displayed, play_queue: rest)
+
+        socket =
+          if play.trick_complete do
+            assign(socket, awaiting_moze: true)
+          else
+            Process.send_after(self(), :reveal_next_play, @reveal_delay_ms)
+            socket
+          end
+
+        {:noreply, socket}
+    end
+  end
+
+  @impl true
   def handle_info({:hand_completed, _game_id, _scoring_result}, socket) do
     {:ok, view} = GameServer.get_player_view(socket.assigns.game_id, socket.assigns.seat)
-    {:noreply, assign(socket, view: view, show_scoring: true)}
+
+    {:noreply,
+     assign(socket,
+       view: view,
+       show_scoring: true,
+       displayed_trick: nil,
+       play_queue: [],
+       awaiting_moze: false
+     )}
   end
 
   @impl true
   def handle_info({:new_hand_starting, _game_id}, socket) do
     {:ok, view} = GameServer.get_player_view(socket.assigns.game_id, socket.assigns.seat)
-    {:noreply, assign(socket, view: view, show_scoring: false, selected_discards: MapSet.new())}
+
+    {:noreply,
+     assign(socket,
+       view: view,
+       show_scoring: false,
+       selected_discards: MapSet.new(),
+       talon_taken: false,
+       displayed_trick: nil,
+       play_queue: [],
+       awaiting_moze: false
+     )}
   end
 
   @impl true
@@ -100,6 +174,11 @@ defmodule PreferansWebWeb.GameLive do
   @impl true
   def handle_event("bid_igra", %{"action" => action_str}, socket) do
     submit(socket, String.to_existing_atom(action_str))
+  end
+
+  @impl true
+  def handle_event("take_talon", _params, socket) do
+    {:noreply, assign(socket, talon_taken: true)}
   end
 
   @impl true
@@ -153,6 +232,21 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   @impl true
+  def handle_event("trick_continue", _params, socket) do
+    socket = assign(socket, awaiting_moze: false, displayed_trick: [])
+
+    socket =
+      if socket.assigns.play_queue == [] do
+        assign(socket, displayed_trick: nil)
+      else
+        Process.send_after(self(), :reveal_next_play, @reveal_delay_ms)
+        socket
+      end
+
+    {:noreply, socket}
+  end
+
+  @impl true
   def handle_event("toggle_debug", _params, socket) do
     show = !socket.assigns.show_debug
 
@@ -203,12 +297,24 @@ defmodule PreferansWebWeb.GameLive do
           <div class="pf-paper" style={paper_wrap_style(0.6)}>
             <.mini_scoresheet
               player_name={display_name(@view, @positions.left)}
+              bule_entries={bule_entries_for(@view, @positions.left)}
+              supa_left_entries={supa_entries_from(@view, @positions.left, :left)}
+              supa_right_entries={supa_entries_from(@view, @positions.left, :right)}
               total={total_for_seat(@view, @positions.left)}
               lang={:sr}
             />
           </div>
-          <div style="margin-top: 8px; margin-bottom: 14px; align-self: center;">
-            <.refe counts={@view.match_refe_counts} per_refe={10} count={3} />
+          <div style="margin-top: auto; margin-bottom: 24px; align-self: center;">
+            <.refe
+              counts={[
+                Enum.at(@view.match_refe_hands_played, @positions.bottom),
+                Enum.at(@view.match_refe_hands_played, @positions.left),
+                Enum.at(@view.match_refe_hands_played, @positions.right)
+              ]}
+              slots_opened={Enum.max(@view.match_refe_counts)}
+              per_refe={10}
+              count={3}
+            />
           </div>
         </div>
 
@@ -232,7 +338,13 @@ defmodule PreferansWebWeb.GameLive do
               <div :if={@view.game_type}>
                 IGRA: <span style="color: #d4b572;">{format_contract(@view)}</span>
                 <span :if={@view.kontra_level > 0} style="color: #d96666; margin-left: 8px;">
-                  ×{Integer.pow(2, @view.kontra_level)}
+                  <span
+                    :for={entry <- @view.kontra_history || []}
+                    style="margin-left: 6px;"
+                  >
+                    {kontra_action_label(entry.action)} · {display_name(@view, entry.player)}
+                  </span>
+                  <span style="margin-left: 8px;">×{Integer.pow(2, @view.kontra_level)}</span>
                 </span>
               </div>
               <div>
@@ -252,7 +364,7 @@ defmodule PreferansWebWeb.GameLive do
 
           <%!-- Talon (visible during bid + discard before declarer takes) --%>
           <div
-            :if={show_talon?(@view)}
+            :if={show_talon?(@view, @seat, @talon_taken)}
             style="display: flex; justify-content: center; gap: 8px; padding: 4px 0;"
           >
             <.card
@@ -269,7 +381,12 @@ defmodule PreferansWebWeb.GameLive do
               <% :bid -> %>
                 <.bidding_panel view={@view} lang={:sr} />
               <% :discard -> %>
-                <.discard_panel view={@view} selected={@selected_discards} lang={:sr} />
+                <.discard_panel
+                  view={@view}
+                  selected={@selected_discards}
+                  talon_taken={@talon_taken}
+                  lang={:sr}
+                />
               <% :declare_game -> %>
                 <.declare_panel view={@view} lang={:sr} />
               <% :defense -> %>
@@ -277,7 +394,22 @@ defmodule PreferansWebWeb.GameLive do
               <% :kontra -> %>
                 <.kontra_panel view={@view} lang={:sr} />
               <% :trick_play -> %>
-                <.trick_area view={@view} positions={@positions} lang={:sr} />
+                <.trick_area
+                  view={
+                    if @displayed_trick,
+                      do: %{@view | current_trick: @displayed_trick},
+                      else: @view
+                  }
+                  positions={@positions}
+                  lang={:sr}
+                />
+                <button
+                  :if={@awaiting_moze}
+                  phx-click="trick_continue"
+                  style="background: #d4b572; color: #2a1d10; border: 1px solid #d4b572; padding: 8px 28px; font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.25em; cursor: pointer; border-radius: 3px; text-transform: uppercase; font-weight: 700;"
+                >
+                  Može
+                </button>
               <% :hand_over -> %>
                 <.scoring_panel view={@view} lang={:sr} />
               <% _ -> %>
@@ -306,30 +438,30 @@ defmodule PreferansWebWeb.GameLive do
               </div>
             </div>
 
-            <div style="position: relative; display: flex; justify-content: center; min-height: 116px;">
+            <div style="position: relative; display: flex; justify-content: center; min-height: 174px;">
               <div
-                :for={{c, i} <- Enum.with_index(@view.my_hand)}
-                style={"margin-left: #{if i == 0, do: 0, else: -22}px; z-index: #{i}; position: relative;"}
+                :for={{c, i} <- Enum.with_index(visible_hand(@view, @seat, @talon_taken))}
+                style={"margin-left: #{if i == 0, do: 0, else: -33}px; z-index: #{i}; position: relative;"}
               >
                 <% legal? = legal_for_human?(@view, c) %>
                 <% selected? = MapSet.member?(@selected_discards, c) %>
+                <% in_discard_select? =
+                  @view.phase == :discard and @view.declarer == @seat and @talon_taken %>
                 <% clickable? =
-                  (@view.phase == :discard and @view.declarer == @seat) or
-                    (@view.phase == :trick_play and legal?) %>
+                  in_discard_select? or (@view.phase == :trick_play and legal?) %>
                 <% click_event =
                   cond do
-                    @view.phase == :discard and @view.declarer == @seat -> "toggle_discard"
+                    in_discard_select? -> "toggle_discard"
                     @view.phase == :trick_play and legal? -> "play_card"
                     true -> nil
                   end %>
                 <.card
                   card={c}
-                  size={:lg}
+                  size={:xl}
                   selected={selected?}
                   dimmed={
                     (@view.phase == :trick_play and not legal?) or
-                      (@view.phase == :discard and @view.declarer == @seat and
-                         MapSet.size(@selected_discards) >= 2 and not selected?)
+                      (in_discard_select? and MapSet.size(@selected_discards) >= 2 and not selected?)
                   }
                   clickable={clickable?}
                   click_event={click_event}
@@ -365,13 +497,22 @@ defmodule PreferansWebWeb.GameLive do
           <div class="pf-paper" style={paper_wrap_style(-0.5)}>
             <.mini_scoresheet
               player_name={display_name(@view, @positions.right)}
+              bule_entries={bule_entries_for(@view, @positions.right)}
+              supa_left_entries={supa_entries_from(@view, @positions.right, :left)}
+              supa_right_entries={supa_entries_from(@view, @positions.right, :right)}
               total={total_for_seat(@view, @positions.right)}
               lang={:sr}
             />
           </div>
-          <div class="pf-paper" style={paper_wrap_style(0.4)}>
+          <div
+            class="pf-paper"
+            style={paper_wrap_style(0.4) <> " margin-top: auto; margin-bottom: 24px;"}
+          >
             <.mini_scoresheet
               player_name={display_name(@view, @seat)}
+              bule_entries={bule_entries_for(@view, @seat)}
+              supa_left_entries={supa_entries_from(@view, @seat, :left)}
+              supa_right_entries={supa_entries_from(@view, @seat, :right)}
               total={total_for_seat(@view, @seat)}
               lang={:sr}
             />
@@ -412,8 +553,29 @@ defmodule PreferansWebWeb.GameLive do
     Map.get(view.display_names, seat, "Seat #{seat}")
   end
 
-  defp show_talon?(view) do
-    view.phase == :bid or (view.phase == :discard and view.talon != nil)
+  defp visible_hand(view, seat, talon_taken) do
+    if view.phase == :discard and seat == view.declarer and not talon_taken and
+         is_list(view.talon) do
+      view.my_hand -- view.talon
+    else
+      view.my_hand
+    end
+  end
+
+  defp show_talon?(view, seat, talon_taken) do
+    cond do
+      view.phase == :bid ->
+        true
+
+      view.phase == :discard and view.talon != nil and seat == view.declarer and talon_taken ->
+        false
+
+      view.phase == :discard and view.talon != nil ->
+        true
+
+      true ->
+        false
+    end
   end
 
   defp partner?(view, seat) do
@@ -421,7 +583,46 @@ defmodule PreferansWebWeb.GameLive do
   end
 
   defp total_for_seat(view, seat) do
-    Enum.at(view.match_bule, seat, @starting_bule) - @starting_bule
+    @starting_bule - Enum.at(view.match_bule, seat, @starting_bule)
+  end
+
+  defp kontra_action_label(:kontra), do: "KONTRA"
+  defp kontra_action_label(:rekontra), do: "REKONTRA"
+  defp kontra_action_label(:subkontra), do: "SUBKONTRA"
+  defp kontra_action_label(:mortkontra), do: "MORTKONTRA"
+  defp kontra_action_label(_), do: ""
+
+  defp left_neighbor(seat), do: rem(seat + 2, 3)
+  defp right_neighbor(seat), do: rem(seat + 1, 3)
+
+  defp bule_entries_for(view, seat) do
+    view
+    |> Map.get(:match_history, [])
+    |> Enum.flat_map(fn h ->
+      change = Enum.at(h.bule_changes, seat, 0)
+
+      if change < 0 do
+        [%{hand: h.hand, score: -change}]
+      else
+        []
+      end
+    end)
+  end
+
+  defp supa_entries_from(view, seat, side) do
+    from = if side == :left, do: left_neighbor(seat), else: right_neighbor(seat)
+
+    view
+    |> Map.get(:match_history, [])
+    |> Enum.flat_map(fn h ->
+      amount = Map.get(h.supe_changes, {from, seat}, 0)
+
+      if amount > 0 do
+        [%{hand: h.hand, score: amount}]
+      else
+        []
+      end
+    end)
   end
 
   defp last_action_text(view, seat) do

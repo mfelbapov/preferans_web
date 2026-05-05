@@ -37,15 +37,38 @@ defmodule PreferansWebWeb.Layouts do
     ~H"""
     <header class="navbar px-4 sm:px-6 lg:px-8">
       <div class="flex-1">
-        <a href="/" class="flex-1 flex w-fit items-center gap-2 text-lg font-bold">
+        <.link navigate={~p"/"} class="flex w-fit items-center gap-2 text-lg font-bold">
           Preferans
-        </a>
+        </.link>
       </div>
       <div class="flex-none">
-        <ul class="flex flex-column px-1 space-x-4 items-center">
-          <li>
-            <.link navigate="/lobby" class="btn btn-ghost">Lobby</.link>
-          </li>
+        <ul class="flex flex-column px-1 space-x-2 items-center">
+          <%= if @current_scope && @current_scope.user do %>
+            <li>
+              <.link navigate={~p"/lobby"} class="btn btn-ghost btn-sm">Lobby</.link>
+            </li>
+            <li>
+              <.link navigate={~p"/history"} class="btn btn-ghost btn-sm">History</.link>
+            </li>
+            <li>
+              <.link navigate={~p"/profile"} class="btn btn-ghost btn-sm">Profile</.link>
+            </li>
+            <li>
+              <.link navigate={~p"/users/settings"} class="btn btn-ghost btn-sm">Settings</.link>
+            </li>
+            <li>
+              <.link href={~p"/users/log-out"} method="delete" class="btn btn-ghost btn-sm">
+                Log out
+              </.link>
+            </li>
+          <% else %>
+            <li>
+              <.link navigate={~p"/users/log-in"} class="btn btn-ghost btn-sm">Log in</.link>
+            </li>
+            <li>
+              <.link navigate={~p"/users/register"} class="btn btn-primary btn-sm">Register</.link>
+            </li>
+          <% end %>
           <li>
             <.theme_toggle />
           </li>

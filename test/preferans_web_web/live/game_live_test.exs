@@ -63,6 +63,9 @@ defmodule PreferansWebWeb.GameLiveTest do
       card1 = Enum.at(hand, 0)
       card2 = Enum.at(hand, 1)
 
+      # Take talon first so the hand becomes selectable for discard
+      lv |> element("#take-talon-btn") |> render_click()
+
       # Click first card — should get selected (ring-2 class)
       html = lv |> element("#discard-#{card_dom_id(card1)}") |> render_click()
       assert html =~ "pf-card-selected"
@@ -86,6 +89,9 @@ defmodule PreferansWebWeb.GameLiveTest do
 
       {:ok, view} = GameServer.get_player_view(game_id, 0)
       card1 = Enum.at(view.my_hand, 0)
+
+      # Take talon first so the hand becomes selectable for discard
+      lv |> element("#take-talon-btn") |> render_click()
 
       # Select card
       lv |> element("#discard-#{card_dom_id(card1)}") |> render_click()

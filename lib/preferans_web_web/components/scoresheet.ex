@@ -7,32 +7,32 @@ defmodule PreferansWebWeb.Scoresheet do
 
   @doc """
   Per-player paper scoresheet: three columns (Supa | Bule | Supa), sub-totals
-  and grand total. Caller supplies bule and supa entries plus the running total.
+  and grand total. Caller supplies bule and per-side supa entries plus the
+  running total.
 
   ## Attrs
     * `player_name` — uppercased in the header.
     * `bule_entries` — `[%{hand: integer, score: integer}]` (positive, "won").
-    * `supa_entries` — `[%{hand: integer, score: integer}]` (positive magnitude,
-      "lost"; the component splits the list across the two red columns).
+    * `supa_left_entries` — `[%{hand: integer, score: integer}]`, supa written
+      against the player by their left neighbor.
+    * `supa_right_entries` — same, by the right neighbor.
     * `total` — signed grand total displayed at the bottom.
     * `lang` — `:sr | :en`. Switches header labels.
   """
   attr :player_name, :string, required: true
   attr :bule_entries, :list, default: []
-  attr :supa_entries, :list, default: []
+  attr :supa_left_entries, :list, default: []
+  attr :supa_right_entries, :list, default: []
   attr :total, :integer, default: 0
   attr :lang, :atom, default: :sr
 
   def mini_scoresheet(assigns) do
-    {supa_left, supa_right} = split_supa(assigns.supa_entries)
-    sum_l = sum_entries(supa_left)
-    sum_r = sum_entries(supa_right)
+    sum_l = sum_entries(assigns.supa_left_entries)
+    sum_r = sum_entries(assigns.supa_right_entries)
     sum_bule = sum_entries(assigns.bule_entries)
 
     assigns =
       assigns
-      |> assign(:supa_left, supa_left)
-      |> assign(:supa_right, supa_right)
       |> assign(:sum_l, sum_l)
       |> assign(:sum_r, sum_r)
       |> assign(:sum_bule, sum_bule)
@@ -60,7 +60,7 @@ defmodule PreferansWebWeb.Scoresheet do
         </div>
 
         <div style="border-right: 1px solid rgba(60,40,20,0.2);">
-          <.supa_col entries={@supa_left} />
+          <.supa_col entries={@supa_left_entries} />
         </div>
         <div style={bule_cell_style()}>
           <div
@@ -74,7 +74,7 @@ defmodule PreferansWebWeb.Scoresheet do
           </div>
         </div>
         <div>
-          <.supa_col entries={@supa_right} />
+          <.supa_col entries={@supa_right_entries} />
         </div>
 
         <div style={subtotal_style(:red, :right)}>{display_sum(@sum_l)}</div>
@@ -109,24 +109,35 @@ defmodule PreferansWebWeb.Scoresheet do
   left = seat 1, right = seat 2). Tally marks accumulate per side; every fifth
   mark is rendered as a diagonal cross over the prior four (4+1 grouping).
 
+  Activation (placeholder vs. solid outline) is driven separately from ticks
+  so a refe slot can light up the moment it's declared even though no hand
+  has been played within it yet.
+
   ## Attrs
-    * `counts` — 3-int list `[c0, c1, c2]`, total marks per seat across all refes.
+    * `counts` — 3-int list `[c0, c1, c2]`, total tally marks per seat across
+      all refes (refe-hands played by each player).
+    * `slots_opened` — number of refe slots currently declared. Triangles with
+      index `< slots_opened` render as active, the rest as placeholders.
     * `per_refe` — threshold before a side spills into the next triangle.
     * `count` — number of triangles to draw (default 3).
   """
   attr :counts, :list, required: true
+  attr :slots_opened, :integer, default: 0
   attr :per_refe, :integer, default: 10
   attr :count, :integer, default: 3
 
   def refe(assigns) do
     refes =
       for refe_idx <- 0..(assigns.count - 1) do
-        Enum.map(assigns.counts, fn t ->
-          t
-          |> Kernel.-(refe_idx * assigns.per_refe)
-          |> max(0)
-          |> min(assigns.per_refe)
-        end)
+        counts =
+          Enum.map(assigns.counts, fn t ->
+            t
+            |> Kernel.-(refe_idx * assigns.per_refe)
+            |> max(0)
+            |> min(assigns.per_refe)
+          end)
+
+        %{counts: counts, active?: refe_idx < assigns.slots_opened}
       end
 
     assigns = assign(assigns, :refes, refes)
@@ -136,44 +147,45 @@ defmodule PreferansWebWeb.Scoresheet do
       class="pf-refe"
       style="width: 220px; padding: 8px 6px; display: flex; justify-content: space-around; gap: 4px;"
     >
-      <svg :for={{counts, i} <- Enum.with_index(@refes)} viewBox="0 0 70 62" width="70" height="62">
+      <svg :for={refe <- @refes} viewBox="0 0 70 62" width="70" height="62">
         <polygon
           points="35,6 6,56 64,56"
           fill="none"
           stroke="#f5e9d4"
-          stroke-width="1.5"
+          stroke-width={if refe.active?, do: "2.5", else: "1"}
+          stroke-opacity={if refe.active?, do: "1", else: "0.25"}
+          stroke-dasharray={if refe.active?, do: "none", else: "3 3"}
         />
         <%!-- bottom side B->C: seat 0 --%>
         <line
-          :for={mark <- tally_marks({6, 56}, {64, 56}, Enum.at(counts, 0), @per_refe)}
+          :for={mark <- tally_marks({6, 56}, {64, 56}, Enum.at(refe.counts, 0), @per_refe)}
           x1={mark.x1}
           y1={mark.y1}
           x2={mark.x2}
           y2={mark.y2}
           stroke="#f5e9d4"
-          stroke-width="1.5"
+          stroke-width="2.5"
         />
         <%!-- left side A->B: seat 1 --%>
         <line
-          :for={mark <- tally_marks({35, 6}, {6, 56}, Enum.at(counts, 1), @per_refe)}
+          :for={mark <- tally_marks({35, 6}, {6, 56}, Enum.at(refe.counts, 1), @per_refe)}
           x1={mark.x1}
           y1={mark.y1}
           x2={mark.x2}
           y2={mark.y2}
           stroke="#f5e9d4"
-          stroke-width="1.5"
+          stroke-width="2.5"
         />
         <%!-- right side C->A: seat 2 --%>
         <line
-          :for={mark <- tally_marks({64, 56}, {35, 6}, Enum.at(counts, 2), @per_refe)}
+          :for={mark <- tally_marks({64, 56}, {35, 6}, Enum.at(refe.counts, 2), @per_refe)}
           x1={mark.x1}
           y1={mark.y1}
           x2={mark.x2}
           y2={mark.y2}
           stroke="#f5e9d4"
-          stroke-width="1.5"
+          stroke-width="2.5"
         />
-        <% _ = i %>
       </svg>
     </div>
     """
@@ -308,11 +320,6 @@ defmodule PreferansWebWeb.Scoresheet do
   end
 
   ## Data helpers
-
-  defp split_supa(entries) do
-    half = ceil(length(entries) / 2)
-    Enum.split(entries, half)
-  end
 
   defp sum_entries(entries), do: Enum.reduce(entries, 0, fn e, acc -> acc + e.score end)
 

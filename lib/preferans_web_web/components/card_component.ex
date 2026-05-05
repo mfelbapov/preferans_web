@@ -12,6 +12,7 @@ defmodule PreferansWebWeb.CardComponent do
     sm: %{w: 44, h: 64, font: 14, sym: 12, corner: 6, pip_ratio: 0.42},
     md: %{w: 64, h: 92, font: 20, sym: 18, corner: 6, pip_ratio: 0.42},
     lg: %{w: 80, h: 116, font: 26, sym: 22, corner: 8, pip_ratio: 0.42},
+    xl: %{w: 120, h: 174, font: 39, sym: 33, corner: 12, pip_ratio: 0.42},
     # Legacy aliases used by step-5 callers; remove once those are rewritten.
     small: %{w: 44, h: 64, font: 14, sym: 12, corner: 6, pip_ratio: 0.42},
     normal: %{w: 64, h: 92, font: 20, sym: 18, corner: 6, pip_ratio: 0.42}
@@ -22,7 +23,7 @@ defmodule PreferansWebWeb.CardComponent do
   attr :clickable, :boolean, default: false
   attr :selected, :boolean, default: false
   attr :dimmed, :boolean, default: false
-  attr :size, :atom, default: :md, doc: ":xs | :sm | :md | :lg"
+  attr :size, :atom, default: :md, doc: ":xs | :sm | :md | :lg | :xl"
   attr :click_event, :string, default: nil
   attr :click_value, :string, default: nil
   attr :id, :string, default: nil
@@ -82,7 +83,7 @@ defmodule PreferansWebWeb.CardComponent do
           "opacity: 1; transform: translateY(-12px); box-shadow: 0 -8px 0 -2px var(--accent), 0 12px 24px rgba(0,0,0,0.35);"
 
         dimmed ->
-          "opacity: 0.42; box-shadow: 0 4px 10px rgba(0,0,0,0.28);"
+          "opacity: 1; filter: grayscale(0.7) brightness(0.7); box-shadow: 0 4px 10px rgba(0,0,0,0.28);"
 
         clickable ->
           "opacity: 1; box-shadow: 0 4px 10px rgba(0,0,0,0.28);"

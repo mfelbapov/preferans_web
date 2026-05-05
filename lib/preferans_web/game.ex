@@ -107,14 +107,14 @@ defmodule PreferansWeb.Game do
                 user_id: nil,
                 is_ai: true,
                 ai_level: "heuristic",
-                display_name: "Bot Duško"
+                display_name: "Bot 1"
               },
               %{
                 seat: 2,
                 user_id: nil,
                 is_ai: true,
                 ai_level: "heuristic",
-                display_name: "Bot Nikola"
+                display_name: "Bot 2"
               }
             ]
           }
